@@ -169,9 +169,9 @@ logger/
 - [x] **Analytics** — Time-scale filtering, stacked area chart, category breakdown with session labels, session comparison by family groups, weekly heatmap
 - [x] **Data Management** — Two-panel CSV import, full family CRUD (create/edit/rename/delete), bubble visualization, three-tab data page (Sessions, Groups, Families)
 - [x] **CSV Normalization** — Clean column names in CSVs, simplified import pipeline, family auto-detection from display names, auto-active session detection on import
-- [ ] **AI Chat** — Claude API integration with approval flow
-- [ ] **Projects** — Family timeline with AI-generated descriptions
-- [ ] **Polish** — Responsive layout, loading states, error handling
+- [x] **AI Chat** — Claude API integration with approval flow
+- [x] **Projects** — Family timeline with AI-generated descriptions
+- [x] **Polish** — Responsive layout, loading states, error handling
 
 ## License
 
