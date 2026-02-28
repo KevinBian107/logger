@@ -69,6 +69,7 @@ class CategoryCreate(BaseModel):
 
 
 class CategoryUpdate(BaseModel):
+    name: str | None = None
     display_name: str | None = None
     family_id: int | None = None
 

@@ -126,6 +126,8 @@ async def update_category(
     if not cat:
         raise HTTPException(status_code=404, detail="Category not found")
 
+    if data.name is not None:
+        cat.name = data.name
     if data.display_name is not None:
         cat.display_name = data.display_name
     if data.family_id is not None:

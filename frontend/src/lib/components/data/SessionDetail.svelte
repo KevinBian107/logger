@@ -23,6 +23,12 @@
 	let editGroup = $state<string>('');
 	let editFamilyId = $state<number>(0);
 
+	// Rename
+	let editDisplayName = $state('');
+
+	// Delete confirmation
+	let confirmDeleteId = $state<number | null>(null);
+
 	const GROUP_LABELS: Record<string, string> = {
 		research: 'Research',
 		course: 'Courses',
@@ -61,22 +67,33 @@
 		editingCatId = catId;
 		editGroup = cat.family_type || '';
 		editFamilyId = cat.family_id ?? 0;
+		editDisplayName = cat.display_name || cat.name;
 	}
 
 	function cancelEditing() {
 		editingCatId = null;
 		editGroup = '';
 		editFamilyId = 0;
+		editDisplayName = '';
 	}
 
-	async function saveFamily(catId: number) {
+	async function saveCategory(catId: number) {
 		savingCatId = catId;
 		try {
-			await api.updateCategory(catId, { family_id: editFamilyId });
+			const updates: { family_id?: number; display_name?: string; name?: string } = {
+				family_id: editFamilyId,
+			};
+			const cat = session.categories.find(c => c.id === catId);
+			const originalDisplay = cat?.display_name || cat?.name || '';
+			if (editDisplayName.trim() && editDisplayName.trim() !== originalDisplay) {
+				updates.display_name = editDisplayName.trim();
+				updates.name = editDisplayName.trim().toLowerCase().replace(/\s+/g, '_');
+			}
+			await api.updateCategory(catId, updates);
 			editingCatId = null;
 			onUpdate?.();
 		} catch (e) {
-			console.error('Failed to update category family:', e);
+			console.error('Failed to update category:', e);
 		}
 		savingCatId = null;
 	}
@@ -247,7 +264,15 @@
 					{#each session.categories as cat}
 						<tr class="border-b border-border last:border-0 hover:bg-muted/30">
 							<td class="px-4 py-2.5">
-								<span class="font-medium">{cat.display_name || cat.name}</span>
+								{#if editingCatId === cat.id}
+									<input
+										type="text"
+										bind:value={editDisplayName}
+										class="w-full rounded-md border border-border bg-background px-2 py-1 text-sm font-medium focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+									/>
+								{:else}
+									<span class="font-medium">{cat.display_name || cat.name}</span>
+								{/if}
 							</td>
 
 							{#if editingCatId === cat.id}
@@ -316,7 +341,7 @@
 								{#if editingCatId === cat.id}
 									<div class="flex items-center gap-1">
 										<button
-											onclick={() => saveFamily(cat.id)}
+											onclick={() => saveCategory(cat.id)}
 											disabled={savingCatId === cat.id}
 											class="rounded p-1 text-green-600 hover:bg-green-500/10 transition-colors disabled:opacity-50"
 											title="Save"
@@ -340,23 +365,27 @@
 										<button
 											onclick={() => startEditing(cat.id)}
 											class="rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-											title="Edit family"
+											title="Edit category"
 										>
 											<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
 												<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
 											</svg>
 										</button>
-										{#if cat.total_minutes === 0}
-											<button
-												onclick={() => handleDeleteCategory(cat.id)}
-												class="rounded p-1 text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
-												title="Delete category"
-											>
-												<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-													<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-												</svg>
-											</button>
-										{/if}
+										<button
+											onclick={() => {
+												if (cat.total_minutes > 0) {
+													confirmDeleteId = cat.id;
+												} else {
+													handleDeleteCategory(cat.id);
+												}
+											}}
+											class="rounded p-1 text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+											title="Delete category"
+										>
+											<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+											</svg>
+										</button>
 									</div>
 								{/if}
 							</td>
@@ -411,3 +440,35 @@
 		</div>
 	</div>
 </div>
+
+<!-- Delete confirmation dialog -->
+{#if confirmDeleteId}
+	{@const cat = session.categories.find(c => c.id === confirmDeleteId)}
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onclick={() => confirmDeleteId = null} onkeydown={(e) => { if (e.key === 'Escape') confirmDeleteId = null; }}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="mx-4 w-full max-w-sm rounded-xl border border-border bg-card p-5 shadow-lg" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+			<h3 class="text-base font-semibold">Delete Category</h3>
+			{#if cat}
+				<p class="mt-2 text-sm text-muted-foreground">
+					Are you sure you want to delete <span class="font-medium text-foreground">{cat.display_name || cat.name}</span>?
+					This category has <span class="font-medium text-foreground">{formatHours(cat.total_minutes)}</span> of logged time that will be lost.
+				</p>
+			{/if}
+			<div class="mt-4 flex justify-end gap-3">
+				<button
+					onclick={() => confirmDeleteId = null}
+					class="rounded-md px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={() => { if (confirmDeleteId) { handleDeleteCategory(confirmDeleteId); confirmDeleteId = null; } }}
+					class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+				>
+					Delete
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}

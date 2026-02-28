@@ -411,7 +411,7 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify(data),
 		}),
-	updateCategory: (categoryId: number, data: { family_id?: number; display_name?: string }) =>
+	updateCategory: (categoryId: number, data: { family_id?: number; display_name?: string; name?: string }) =>
 		request<CategoryResponse>(`/categories/${categoryId}`, {
 			method: 'PUT',
 			body: JSON.stringify(data),
