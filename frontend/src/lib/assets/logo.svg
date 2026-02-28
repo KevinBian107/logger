@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#6366F1"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="240" height="240" rx="48" fill="url(#bg)"/>
+  <!-- Logarithmic curve (subtle, decorative) -->
+  <path d="M40 200 Q60 180 80 140 Q100 100 140 80 Q170 65 210 58"
+        fill="none" stroke="white" stroke-opacity="0.15" stroke-width="18" stroke-linecap="round"/>
+  <!-- Text: log(ger) -->
+  <text x="120" y="138" text-anchor="middle" font-family="'SF Mono','Fira Code','Consolas',monospace" font-weight="700" fill="white">
+    <tspan font-size="62">log</tspan><tspan font-size="62" fill-opacity="0.6">(</tspan><tspan font-size="62">ger</tspan><tspan font-size="62" fill-opacity="0.6">)</tspan>
+  </text>
+</svg>

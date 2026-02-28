@@ -1,0 +1,23 @@
+scratch/
+sessions/
+.propel/
+.claude/
+propel/
+/data/
+
+# Database
+logger.db
+
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+*.pyc
+
+# Frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+
+# OS
+.DS_Store
