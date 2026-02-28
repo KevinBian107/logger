@@ -406,10 +406,19 @@ export const api = {
 		request<CategoryResponse[]>(`/sessions/${sessionId}/categories`),
 
 	// Categories
+	addCategory: (sessionId: number, data: { name: string; display_name?: string; family?: string }) =>
+		request<CategoryResponse>(`/sessions/${sessionId}/categories`, {
+			method: 'POST',
+			body: JSON.stringify(data),
+		}),
 	updateCategory: (categoryId: number, data: { family_id?: number; display_name?: string }) =>
 		request<CategoryResponse>(`/categories/${categoryId}`, {
 			method: 'PUT',
 			body: JSON.stringify(data),
+		}),
+	deleteCategory: (categoryId: number) =>
+		request<Record<string, unknown>>(`/categories/${categoryId}`, {
+			method: 'DELETE',
 		}),
 
 	// Families

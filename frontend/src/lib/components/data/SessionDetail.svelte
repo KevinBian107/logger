@@ -13,6 +13,12 @@
 	let newFamilyName = $state('');
 	let newFamilyType = $state('research');
 
+	// Add category
+	let addingCategory = $state(false);
+	let newCatName = $state('');
+	let addingCatLoading = $state(false);
+	let addCatError = $state('');
+
 	// Track selected group for the editing row
 	let editGroup = $state<string>('');
 	let editFamilyId = $state<number>(0);
@@ -94,6 +100,34 @@
 		}
 	}
 
+	async function handleAddCategory() {
+		const name = newCatName.trim();
+		if (!name) return;
+		addingCatLoading = true;
+		addCatError = '';
+		try {
+			await api.addCategory(session.id, {
+				name: name.toLowerCase().replace(/\s+/g, '_'),
+				display_name: name,
+			});
+			newCatName = '';
+			addingCategory = false;
+			onUpdate?.();
+		} catch (e: unknown) {
+			addCatError = e instanceof Error ? e.message : 'Failed to add category';
+		}
+		addingCatLoading = false;
+	}
+
+	async function handleDeleteCategory(catId: number) {
+		try {
+			await api.deleteCategory(catId);
+			onUpdate?.();
+		} catch (e: unknown) {
+			console.error('Failed to delete category:', e);
+		}
+	}
+
 	function formatHours(minutes: number): string {
 		const hours = Math.floor(minutes / 60);
 		const mins = minutes % 60;
@@ -153,7 +187,50 @@
 
 	<!-- Categories table -->
 	<div>
-		<h3 class="mb-3 text-lg font-semibold">Categories</h3>
+		<div class="mb-3 flex items-center justify-between">
+			<h3 class="text-lg font-semibold">Categories</h3>
+			{#if !addingCategory}
+				<button
+					onclick={() => { addingCategory = true; newCatName = ''; addCatError = ''; }}
+					class="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+				>
+					<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+					</svg>
+					Add Category
+				</button>
+			{/if}
+		</div>
+
+		{#if addingCategory}
+			<div class="mb-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+				{#if addCatError}
+					<div class="mb-2 text-sm text-red-600">{addCatError}</div>
+				{/if}
+				<div class="flex items-center gap-2">
+					<input
+						type="text"
+						bind:value={newCatName}
+						placeholder="Category name (e.g. Training, COGS 118C)"
+						onkeydown={(e) => { if (e.key === 'Enter') handleAddCategory(); if (e.key === 'Escape') addingCategory = false; }}
+						class="flex-1 rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+					/>
+					<button
+						onclick={handleAddCategory}
+						disabled={!newCatName.trim() || addingCatLoading}
+						class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+					>
+						{addingCatLoading ? 'Adding...' : 'Add'}
+					</button>
+					<button
+						onclick={() => addingCategory = false}
+						class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+					>
+						Cancel
+					</button>
+				</div>
+			</div>
+		{/if}
 
 		<div class="rounded-lg border border-border">
 			<table class="w-full text-sm">
@@ -259,15 +336,28 @@
 										</button>
 									</div>
 								{:else}
-									<button
-										onclick={() => startEditing(cat.id)}
-										class="rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-										title="Edit family"
-									>
-										<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-											<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-										</svg>
-									</button>
+									<div class="flex items-center gap-1">
+										<button
+											onclick={() => startEditing(cat.id)}
+											class="rounded p-1 text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+											title="Edit family"
+										>
+											<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+												<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
+											</svg>
+										</button>
+										{#if cat.total_minutes === 0}
+											<button
+												onclick={() => handleDeleteCategory(cat.id)}
+												class="rounded p-1 text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+												title="Delete category"
+											>
+												<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+													<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+												</svg>
+											</button>
+										{/if}
+									</div>
 								{/if}
 							</td>
 						</tr>
