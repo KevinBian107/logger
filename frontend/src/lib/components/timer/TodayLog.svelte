@@ -5,12 +5,14 @@
 		timerEntries,
 		manualEntries,
 		observations = [],
-		onDeleteManual
+		onDeleteManual,
+		onDeleteTimer
 	}: {
 		timerEntries: TimerEntryResponse[];
 		manualEntries: ManualEntryResponse[];
 		observations?: ObservationResponse[];
 		onDeleteManual: (id: number) => void;
+		onDeleteTimer: (id: number) => void;
 	} = $props();
 
 	interface LogItem {
@@ -110,6 +112,16 @@
 							{#if item.type === 'manual'}
 								<button
 									onclick={() => onDeleteManual(item.id)}
+									class="rounded p-1 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600"
+									title="Delete entry"
+								>
+									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							{:else if item.type === 'timer'}
+								<button
+									onclick={() => onDeleteTimer(item.id)}
 									class="rounded p-1 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600"
 									title="Delete entry"
 								>

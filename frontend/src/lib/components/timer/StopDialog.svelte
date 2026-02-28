@@ -5,10 +5,12 @@
 	let {
 		timer,
 		onSave,
+		onDiscard,
 		onCancel
 	}: {
 		timer: TimerEntryResponse;
 		onSave: (id: number, description: string, location: string) => void;
+		onDiscard: (id: number) => void;
 		onCancel: () => void;
 	} = $props();
 
@@ -70,19 +72,27 @@
 			</div>
 		</div>
 
-		<div class="mt-6 flex justify-end gap-3">
+		<div class="mt-6 flex justify-between">
 			<button
-				onclick={onCancel}
-				class="rounded-md px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+				onclick={() => onDiscard(timer.id)}
+				class="rounded-md px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-500/10"
 			>
-				Cancel
+				Discard
 			</button>
-			<button
-				onclick={() => onSave(timer.id, description, location)}
-				class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
-			>
-				Save & Log
-			</button>
+			<div class="flex gap-3">
+				<button
+					onclick={onCancel}
+					class="rounded-md px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+				>
+					Cancel
+				</button>
+				<button
+					onclick={() => onSave(timer.id, description, location)}
+					class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
+				>
+					Save & Log
+				</button>
+			</div>
 		</div>
 	</div>
 </div>

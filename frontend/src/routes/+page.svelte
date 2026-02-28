@@ -97,6 +97,22 @@
 		} catch (e: unknown) { console.error(e); }
 	}
 
+	async function handleDeleteTimer(id: number) {
+		try {
+			await api.discardTimer(id);
+			await loadDashboard();
+		} catch (e: unknown) { console.error(e); }
+	}
+
+	async function handleDiscard(id: number) {
+		try {
+			await api.discardTimer(id);
+			stoppingTimer = null;
+			await loadActiveTimers();
+			await loadDashboard();
+		} catch (e: unknown) { console.error(e); }
+	}
+
 	onMount(() => {
 		loadDashboard();
 		startPolling();
@@ -212,6 +228,7 @@
 					manualEntries={dailyActivity.manual_entries}
 					observations={dailyActivity.observations}
 					onDeleteManual={handleDeleteManual}
+					onDeleteTimer={handleDeleteTimer}
 				/>
 			</div>
 		{/if}
@@ -222,6 +239,7 @@
 	<StopDialog
 		timer={stoppingTimer}
 		onSave={handleStopSave}
+		onDiscard={handleDiscard}
 		onCancel={() => stoppingTimer = null}
 	/>
 {/if}

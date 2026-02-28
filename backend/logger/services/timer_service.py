@@ -127,6 +127,18 @@ async def discard_timer(timer_id: int, db: AsyncSession) -> None:
     timer = await db.get(TimerEntry, timer_id)
     if not timer:
         raise ValueError("Timer not found")
+
+    # If completed, subtract its minutes from the observation
+    if not timer.is_active and timer.duration_minutes:
+        from logger.services.observation_service import subtract_observation
+        await subtract_observation(
+            session_id=timer.session_id,
+            category_id=timer.category_id,
+            date=timer.date,
+            minutes=timer.duration_minutes,
+            db=db,
+        )
+
     await db.delete(timer)
     await db.flush()
 

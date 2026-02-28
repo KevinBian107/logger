@@ -80,9 +80,25 @@
 		} catch (e: unknown) { console.error(e); }
 	}
 
+	async function handleDiscardFromDialog(id: number) {
+		try {
+			await api.discardTimer(id);
+			stoppingTimer = null;
+			await loadActiveTimers();
+			await loadTodayLog();
+		} catch (e: unknown) { console.error(e); }
+	}
+
 	async function handleDeleteManual(id: number) {
 		try {
 			await api.deleteManualEntry(id);
+			await loadTodayLog();
+		} catch (e: unknown) { console.error(e); }
+	}
+
+	async function handleDeleteTimer(id: number) {
+		try {
+			await api.discardTimer(id);
 			await loadTodayLog();
 		} catch (e: unknown) { console.error(e); }
 	}
@@ -193,6 +209,7 @@
 				manualEntries={todayManualEntries}
 				observations={todayObservations}
 				onDeleteManual={handleDeleteManual}
+				onDeleteTimer={handleDeleteTimer}
 			/>
 		</div>
 	{/if}
@@ -203,6 +220,7 @@
 	<StopDialog
 		timer={stoppingTimer}
 		onSave={handleStopSave}
+		onDiscard={handleDiscardFromDialog}
 		onCancel={() => stoppingTimer = null}
 	/>
 {/if}
