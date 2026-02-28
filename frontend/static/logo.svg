@@ -11,7 +11,7 @@
   <path d="M40 200 Q60 180 80 140 Q100 100 140 80 Q170 65 210 58"
         fill="none" stroke="white" stroke-opacity="0.15" stroke-width="18" stroke-linecap="round"/>
   <!-- Text: log(ger) -->
-  <text x="120" y="138" text-anchor="middle" font-family="'SF Mono','Fira Code','Consolas',monospace" font-weight="700" fill="white">
-    <tspan font-size="62">log</tspan><tspan font-size="62" fill-opacity="0.6">(</tspan><tspan font-size="62">ger</tspan><tspan font-size="62" fill-opacity="0.6">)</tspan>
+  <text x="120" y="136" text-anchor="middle" font-family="'SF Mono','Fira Code','Consolas',monospace" font-weight="700" fill="white">
+    <tspan font-size="48">log</tspan><tspan font-size="48" fill-opacity="0.6">(</tspan><tspan font-size="48">ger</tspan><tspan font-size="48" fill-opacity="0.6">)</tspan>
   </text>
 </svg>
