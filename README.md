@@ -175,13 +175,7 @@ logger/
 
 ## Website
 
-The project website is in `website/` (gitignored). To view it locally:
-
-```bash
-open website/index.html
-```
-
-The website can also be deployed to GitHub Pages or any static hosting.
+[**Project Website**](https://kbian.org/logger-website/)
 
 ## License
 
