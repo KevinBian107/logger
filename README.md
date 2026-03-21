@@ -173,6 +173,16 @@ logger/
 - [x] **Projects** — Family timeline with AI-generated descriptions
 - [x] **Polish** — Responsive layout, loading states, error handling
 
+## Website
+
+The project website is in `website/` (gitignored). To view it locally:
+
+```bash
+open website/index.html
+```
+
+The website can also be deployed to GitHub Pages or any static hosting.
+
 ## License
 
 Private project.

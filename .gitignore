@@ -19,5 +19,8 @@ frontend/node_modules/
 frontend/.svelte-kit/
 frontend/build/
 
+# Website (hosted separately)
+website/
+
 # OS
 .DS_Store
