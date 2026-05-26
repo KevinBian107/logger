@@ -90,11 +90,18 @@ async def init_db() -> None:
     # family) so detection works on the same boot, not the next one.
     from logger.services.family_service import seed_default_families_and_rules
     from logger.services.group_service import seed_default_groups, migrate_family_types_to_groups
+    from logger.models import Setting
+    from sqlalchemy import select
     async with async_session() as session:
         await seed_default_groups(session)
         await seed_default_families_and_rules(session)
         await migrate_family_types_to_groups(session)
         await seed_default_families_and_rules(session)
+        # Seed default timezone setting (idempotent — skipped if already set).
+        existing_tz = await session.execute(select(Setting).where(Setting.key == "timezone"))
+        if not existing_tz.scalar_one_or_none():
+            session.add(Setting(key="timezone", value="America/Los_Angeles"))
+            await session.commit()
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:

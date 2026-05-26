@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { theme } from '$lib/stores/theme';
 	import { api, type DBInfoResponse, type ChatStatusResponse, type SettingResponse } from '$lib/api/client';
+	import { timezone, COMMON_TIMEZONES, DEFAULT_TIMEZONE } from '$lib/stores/timezone';
 
 	let dbInfo = $state<DBInfoResponse | null>(null);
 	let apiKey = $state('');
@@ -15,6 +16,29 @@
 	let dbMessage = $state<string | null>(null);
 	let dbMessageIsError = $state(false);
 	let pendingReplaceFile = $state<File | null>(null);
+
+	// Timezone selection
+	let selectedTz = $state<string>(DEFAULT_TIMEZONE);
+	let tzMessage = $state<string | null>(null);
+	let tzSaving = $state(false);
+	const tzKnownIds = COMMON_TIMEZONES.map((t) => t.id);
+	const isCustomTz = $derived(!tzKnownIds.includes(selectedTz));
+
+	async function handleSaveTimezone(value: string) {
+		tzSaving = true;
+		tzMessage = null;
+		try {
+			await api.updateSetting('timezone', value);
+			timezone.set(value);
+			selectedTz = value;
+			tzMessage = 'Timezone saved';
+			setTimeout(() => (tzMessage = null), 2500);
+		} catch (e) {
+			tzMessage = e instanceof Error ? e.message : 'Failed to save timezone';
+		} finally {
+			tzSaving = false;
+		}
+	}
 
 	// GitHub
 	let githubUsername = $state('');
@@ -47,6 +71,9 @@
 			if (ghPublic && ghPublic.value === 'true') {
 				githubPublicOnly = true;
 			}
+			const tzSetting = settings.find((s: SettingResponse) => s.key === 'timezone');
+			selectedTz = tzSetting?.value || DEFAULT_TIMEZONE;
+			timezone.set(selectedTz);
 		} catch {
 			// API not available
 		}
@@ -269,6 +296,56 @@
 					</button>
 				{/each}
 			</div>
+		</div>
+	</section>
+
+	<!-- Timezone -->
+	<section class="space-y-4">
+		<h2 class="text-lg font-semibold">Timezone</h2>
+		<div class="space-y-3 rounded-lg border border-border bg-card p-5">
+			<div class="flex items-center justify-between gap-2">
+				<span class="text-sm font-medium">Display timezone</span>
+				<span class="rounded-full bg-muted px-2.5 py-0.5 text-xs font-mono">{$timezone}</span>
+			</div>
+			<p class="text-xs text-muted-foreground">
+				Clock times shown in the dashboard log, late-night prompt, and date picker are formatted in this timezone.
+				Stored UTC timestamps in the DB are unchanged.
+			</p>
+			<select
+				bind:value={selectedTz}
+				onchange={(e) => handleSaveTimezone((e.currentTarget as HTMLSelectElement).value)}
+				disabled={tzSaving}
+				class="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+			>
+				{#each COMMON_TIMEZONES as opt}
+					<option value={opt.id}>{opt.label} — {opt.id}</option>
+				{/each}
+				{#if isCustomTz}
+					<option value={selectedTz}>{selectedTz} (custom)</option>
+				{/if}
+			</select>
+			<details class="text-xs text-muted-foreground">
+				<summary class="cursor-pointer hover:text-foreground">Use a different IANA timezone</summary>
+				<div class="mt-2 flex gap-2">
+					<input
+						type="text"
+						placeholder="e.g. America/Phoenix"
+						class="flex-1 rounded-md border border-input bg-background px-2.5 py-1.5 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+						onkeydown={(e) => {
+							if (e.key === 'Enter') {
+								const v = (e.currentTarget as HTMLInputElement).value.trim();
+								if (v) handleSaveTimezone(v);
+							}
+						}}
+					/>
+					<span class="self-center text-[10px]">Enter to apply</span>
+				</div>
+			</details>
+			{#if tzMessage}
+				<p class="text-xs {tzMessage.toLowerCase().includes('saved') ? 'text-green-600 dark:text-green-400' : 'text-destructive'}">
+					{tzMessage}
+				</p>
+			{/if}
 		</div>
 	</section>
 

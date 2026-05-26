@@ -35,9 +35,14 @@ async def get_daily_activity(date: str, db: AsyncSession = Depends(get_db)):
     total_minutes = 0
     if daily_record:
         total_minutes = daily_record.total_minutes
+        # Only include observations whose source is 'import' — timer/manual
+        # observations are already represented by their underlying entry rows
+        # (the T and M rows in TodayLog), so including them all would render
+        # the same minutes twice.
         obs_result = await db.execute(
             select(Observation).where(
-                Observation.daily_record_id == daily_record.id
+                Observation.daily_record_id == daily_record.id,
+                Observation.source == "import",
             )
         )
         for obs in obs_result.scalars().all():

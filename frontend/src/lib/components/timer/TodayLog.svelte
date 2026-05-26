@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { TimerEntryResponse, ManualEntryResponse, ObservationResponse } from '$lib/api/client';
+	import { timezone, formatTimeIn } from '$lib/stores/timezone';
 
 	let {
 		timerEntries,
@@ -29,6 +30,7 @@
 	}
 
 	const items: LogItem[] = $derived.by(() => {
+		const tz = $timezone;
 		const all: LogItem[] = [];
 		for (const t of timerEntries) {
 			all.push({
@@ -37,7 +39,7 @@
 				category: t.category_name,
 				minutes: t.duration_minutes || 0,
 				description: t.description,
-				time: t.end_time ? new Date(t.end_time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '',
+				time: formatTimeIn(tz, t.end_time),
 			});
 		}
 		for (const m of manualEntries) {
@@ -47,7 +49,7 @@
 				category: m.category_name,
 				minutes: m.duration_minutes,
 				description: m.description,
-				time: m.created_at ? new Date(m.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '',
+				time: formatTimeIn(tz, m.created_at),
 			});
 		}
 		for (const o of observations) {
