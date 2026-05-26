@@ -30,7 +30,12 @@
 	let loadingSessions = $state(true);
 	let error = $state<string | null>(null);
 	let currentFilters = $state<AnalyticsFilters>({});
-	let currentScale = $state<string>('overall');
+	// FilterBar internals are bound from here so the snapshot can preserve them.
+	let scale = $state<'overall' | 'year' | 'month' | 'week'>('overall');
+	let filterYear = $state<number | null>(null);
+	let filterMonth = $state<number | null>(null);
+	let filterSessionId = $state<number | null>(null);
+	let filterWeek = $state<number | null>(null);
 
 	async function fetchFilteredData(filters: AnalyticsFilters) {
 		try {
@@ -70,9 +75,9 @@
 		loadingSessions = false;
 	}
 
-	function handleFilterChange(filters: AnalyticsFilters, scale: string) {
+	function handleFilterChange(filters: AnalyticsFilters, _scale: string) {
 		currentFilters = filters;
-		currentScale = scale;
+		// `scale` is bound directly via the FilterBar prop so we don't need to copy it here.
 		fetchFilteredData(filters);
 	}
 
@@ -82,6 +87,36 @@
 		loadAll();
 		return unsub;
 	});
+
+	// Preserve filter selection across in-app navigation. SvelteKit's
+	// snapshot.capture runs before this page unmounts on tab switch, and
+	// snapshot.restore runs when it remounts — so Month/Week + the picked
+	// year/month/session/week aren't lost when the user pops over to Timer.
+	export const snapshot = {
+		capture: () => ({
+			filters: currentFilters,
+			scale,
+			filterYear,
+			filterMonth,
+			filterSessionId,
+			filterWeek,
+		}),
+		restore: (s: {
+			filters: AnalyticsFilters;
+			scale: 'overall' | 'year' | 'month' | 'week';
+			filterYear: number | null;
+			filterMonth: number | null;
+			filterSessionId: number | null;
+			filterWeek: number | null;
+		}) => {
+			currentFilters = s.filters;
+			scale = s.scale;
+			filterYear = s.filterYear;
+			filterMonth = s.filterMonth;
+			filterSessionId = s.filterSessionId;
+			filterWeek = s.filterWeek;
+		},
+	};
 </script>
 
 <div class="space-y-6">
@@ -91,7 +126,15 @@
 			<h1 class="text-2xl font-bold">Analytics</h1>
 			<p class="text-sm text-muted-foreground">Visual insights across all sessions</p>
 		</div>
-		<FilterBar sessions={allSessions} onFilterChange={handleFilterChange} />
+		<FilterBar
+			sessions={allSessions}
+			onFilterChange={handleFilterChange}
+			bind:scale
+			bind:selectedYear={filterYear}
+			bind:selectedMonth={filterMonth}
+			bind:selectedSessionId={filterSessionId}
+			bind:selectedWeek={filterWeek}
+		/>
 	</div>
 
 	{#if error}

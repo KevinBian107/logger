@@ -1,21 +1,27 @@
 <script lang="ts">
 	import type { SessionResponse, AnalyticsFilters } from '$lib/api/client';
 
+	type Scale = 'overall' | 'year' | 'month' | 'week';
+
+	// Bindable state lifted to the parent so it survives in-app tab navigation
+	// (the +page.svelte exposes a snapshot that captures these values).
 	let {
 		sessions,
-		onFilterChange
+		onFilterChange,
+		scale = $bindable<Scale>('overall'),
+		selectedYear = $bindable<number | null>(null),
+		selectedMonth = $bindable<number | null>(null),
+		selectedSessionId = $bindable<number | null>(null),
+		selectedWeek = $bindable<number | null>(null),
 	}: {
 		sessions: SessionResponse[];
 		onFilterChange: (filters: AnalyticsFilters, timeScale: string) => void;
+		scale?: Scale;
+		selectedYear?: number | null;
+		selectedMonth?: number | null;
+		selectedSessionId?: number | null;
+		selectedWeek?: number | null;
 	} = $props();
-
-	type Scale = 'overall' | 'year' | 'month' | 'week';
-
-	let scale = $state<Scale>('overall');
-	let selectedYear = $state<number | null>(null);
-	let selectedMonth = $state<number | null>(null);
-	let selectedSessionId = $state<number | null>(null);
-	let selectedWeek = $state<number | null>(null);
 
 	const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

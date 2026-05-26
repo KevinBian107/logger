@@ -49,6 +49,25 @@
 	}
 
 	onMount(loadSessions);
+
+	// Preserve which tab + which session were selected across tab navigation.
+	// Recovers selectedSession by id so we don't stash a stale full payload.
+	export const snapshot = {
+		capture: () => ({
+			rightTab,
+			showImport,
+			selectedSessionId: selectedSession?.id ?? null,
+		}),
+		restore: async (s: { rightTab: 'sessions' | 'groups' | 'families'; showImport: boolean; selectedSessionId: number | null }) => {
+			rightTab = s.rightTab;
+			showImport = s.showImport;
+			if (s.selectedSessionId != null) {
+				try {
+					selectedSession = await api.getSession(s.selectedSessionId);
+				} catch { /* session may have been deleted */ }
+			}
+		},
+	};
 </script>
 
 <div class="flex h-full">

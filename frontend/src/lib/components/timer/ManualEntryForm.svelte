@@ -3,6 +3,8 @@
 	import { api } from '$lib/api/client';
 	import LateNightDatePrompt from './LateNightDatePrompt.svelte';
 	import { formatLocalYMD, isLateNight, lateNightDateOptions } from '$lib/utils/lateNight';
+	import { manualEntryDraft, resetManualEntryDraft } from '$lib/stores/drafts';
+	import { onMount } from 'svelte';
 
 	let {
 		categories,
@@ -12,9 +14,9 @@
 		onCreated: () => void;
 	} = $props();
 
+	// Local copies of the draft fields. We read once on mount and write back
+	// to the store via $effect so the draft survives page navigation.
 	let categoryId = $state<number | null>(null);
-	// In the late-night window default to "yesterday" so the prompt's pre-selected
-	// option matches the user's likely intent. Outside the window, today.
 	let date = $state(
 		isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date())
 	);
@@ -24,6 +26,26 @@
 	let location = $state('');
 	let error = $state('');
 	let saving = $state(false);
+
+	onMount(() => {
+		const unsub = manualEntryDraft.subscribe((d) => {
+			// Only initialise from store on first mount — after that we own the values.
+			if (d.date) {
+				date = d.date;
+				categoryId = d.categoryId;
+				hours = d.hours;
+				minutes = d.minutes;
+				description = d.description;
+				location = d.location;
+			}
+		});
+		unsub();
+	});
+
+	// Persist any local change back to the store so a tab-switch preserves it.
+	$effect(() => {
+		manualEntryDraft.set({ categoryId, date, hours, minutes, description, location });
+	});
 
 	const totalMinutes = $derived(hours * 60 + minutes);
 	const isValid = $derived(categoryId !== null && totalMinutes > 0);
@@ -40,12 +62,13 @@
 				description: description || undefined,
 				location: location || undefined
 			});
-			// Reset form
+			// Reset form + clear the persisted draft (it was for this entry).
 			categoryId = null;
 			hours = 0;
 			minutes = 0;
 			description = '';
 			location = '';
+			resetManualEntryDraft();
 			onCreated();
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to create entry';
