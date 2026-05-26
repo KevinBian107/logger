@@ -1,4 +1,23 @@
-const API_BASE = 'http://localhost:8000/api';
+// API base resolution:
+//   - In the packaged Mac app, the SvelteKit static build is served by FastAPI itself,
+//     so the API is at /api on the same origin.
+//   - In `pnpm dev`, Vite serves the SPA on :5173. We point at the dev uvicorn on :8000
+//     by default, but allow override via VITE_LOGGER_API_BASE for flexibility.
+//   - At runtime a `window.LOGGER_API_BASE` (injected by app_entry.py) can override both.
+import { browser } from '$app/environment';
+
+declare global {
+	interface Window {
+		LOGGER_API_BASE?: string;
+	}
+}
+
+const RUNTIME_OVERRIDE = browser ? window.LOGGER_API_BASE : undefined;
+const ENV_BASE = (import.meta.env.VITE_LOGGER_API_BASE as string | undefined) || undefined;
+const API_BASE =
+	RUNTIME_OVERRIDE ||
+	ENV_BASE ||
+	(browser && window.location.port === '5173' ? 'http://localhost:8000/api' : '/api');
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
 	const res = await fetch(`${API_BASE}${path}`, {
@@ -48,7 +67,10 @@ export interface FamilyResponse {
 	display_name: string | null;
 	description: string | null;
 	color: string | null;
-	family_type: string | null;
+	group_id: number | null;
+	group_name: string | null;
+	group_display_name: string | null;
+	family_type: string | null;  // legacy, kept for backward compat
 	category_count: number;
 	total_minutes: number;
 }
@@ -56,7 +78,7 @@ export interface FamilyResponse {
 export interface ImportCategoryPreview {
 	name: string;
 	display_name: string | null;
-	auto_family: string | null;
+	auto_family_id: number | null;
 	family_display_name: string | null;
 	is_new_family: boolean;
 	source_columns: string[];
@@ -143,8 +165,9 @@ export interface CategoryGroupResponse {
 	display_name: string | null;
 	description: string | null;
 	color: string | null;
-	is_auto: boolean;
-	member_count: number;
+	position: number;
+	is_system: boolean;
+	family_count: number;
 	total_minutes: number;
 }
 
@@ -152,16 +175,27 @@ export interface BubbleCategoryData {
 	category_id: number;
 	name: string;
 	merge_key: string;
-	total_minutes: number;
+	session_id: number | null;
 	session_label: string | null;
+	total_minutes: number;
+}
+
+export interface BubbleFamilyData {
+	family_id: number;
+	name: string;
+	slug: string;
+	color: string | null;
+	total_minutes: number;
+	categories: BubbleCategoryData[];
 }
 
 export interface BubbleGroupData {
 	group_id: number | null;
 	name: string;
+	slug: string;
 	color: string | null;
-	is_auto: boolean;
-	categories: BubbleCategoryData[];
+	families: BubbleFamilyData[];
+	ungrouped_categories?: BubbleCategoryData[];
 	total_minutes: number;
 }
 
@@ -423,12 +457,12 @@ export const api = {
 
 	// Families
 	getFamilies: () => request<FamilyResponse[]>('/families'),
-	createFamily: (data: { name: string; display_name?: string; color?: string; family_type?: string }) =>
+	createFamily: (data: { name: string; display_name?: string; color?: string; group_id?: number | null; family_type?: string }) =>
 		request<FamilyResponse>('/families', {
 			method: 'POST',
 			body: JSON.stringify(data),
 		}),
-	updateFamily: (familyId: number, data: { name?: string; display_name?: string; description?: string; color?: string; family_type?: string }) =>
+	updateFamily: (familyId: number, data: { name?: string; display_name?: string; description?: string; color?: string; group_id?: number | null; family_type?: string }) =>
 		request<FamilyResponse>(`/families/${familyId}`, {
 			method: 'PUT',
 			body: JSON.stringify(data),
@@ -466,6 +500,21 @@ export const api = {
 			body: JSON.stringify({ value })
 		}),
 	getDBInfo: () => request<DBInfoResponse>('/settings/db-info'),
+	replaceDB: async (file: File): Promise<{ db_path: string; backup_path: string | null; bytes_written: number }> => {
+		const form = new FormData();
+		form.append('file', file);
+		const res = await fetch(`${API_BASE}/settings/db/replace`, { method: 'POST', body: form });
+		if (!res.ok) {
+			const err = await res.json().catch(() => ({ detail: res.statusText }));
+			throw new Error(err.detail || `HTTP ${res.status}`);
+		}
+		return res.json();
+	},
+	downloadDB: async (): Promise<Blob> => {
+		const res = await fetch(`${API_BASE}/settings/db/download`);
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		return res.blob();
+	},
 
 	// Timers
 	getActiveTimers: () => request<TimerEntryResponse[]>('/timers/active'),
@@ -539,17 +588,17 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify(data)
 		}),
-	autoGenerateGroups: () =>
-		request<Record<string, unknown>>('/groups/auto-generate', { method: 'POST' }),
-	addGroupMembers: (groupId: number, categoryIds: number[]) =>
-		request<Record<string, unknown>>(`/groups/${groupId}/members`, {
-			method: 'POST',
-			body: JSON.stringify({ category_ids: categoryIds })
+	updateGroup: (groupId: number, data: { display_name?: string; description?: string; color?: string; position?: number }) =>
+		request<Record<string, unknown>>(`/groups/${groupId}`, {
+			method: 'PUT',
+			body: JSON.stringify(data)
 		}),
-	removeGroupMembers: (groupId: number, categoryIds: number[]) =>
-		request<Record<string, unknown>>(`/groups/${groupId}/members`, {
-			method: 'DELETE',
-			body: JSON.stringify({ category_ids: categoryIds })
+	deleteGroup: (groupId: number) =>
+		request<Record<string, unknown>>(`/groups/${groupId}`, { method: 'DELETE' }),
+	setFamilyGroup: (familyId: number, groupId: number | null) =>
+		request<Record<string, unknown>>(`/groups/families/${familyId}/group`, {
+			method: 'PUT',
+			body: JSON.stringify({ group_id: groupId })
 		}),
 
 	// Batch Import

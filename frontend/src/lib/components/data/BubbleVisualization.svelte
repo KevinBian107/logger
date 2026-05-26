@@ -21,11 +21,6 @@
 		error = null;
 		try {
 			data = await api.getBubbleData();
-			// If only "Other" group exists, auto-generate groups first
-			if (data && data.groups.length <= 1) {
-				await api.autoGenerateGroups();
-				data = await api.getBubbleData();
-			}
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to load bubble data';
 		}
@@ -35,18 +30,55 @@
 	function buildHierarchy(resp: BubbleDataResponse) {
 		return {
 			name: 'root',
-			children: resp.groups.map((g, i) => ({
-				name: g.name,
-				color: g.color || PALETTE[i % PALETTE.length],
-				groupId: g.group_id,
-				children: g.categories.map((c) => ({
+			children: resp.groups.map((g, i) => {
+				const groupColor = g.color || PALETTE[i % PALETTE.length];
+				const families = (g.families || []).map((f) => ({
+					name: f.name,
+					level: 'family',
+					color: f.color || groupColor,
+					groupName: g.name,
+					children: f.categories.map((c) => ({
+						name: c.name,
+						level: 'category',
+						value: c.total_minutes,
+						mergeKey: c.merge_key,
+						categoryId: c.category_id,
+						sessionLabel: c.session_label,
+						familyName: f.name,
+						groupName: g.name,
+						color: f.color || groupColor,
+					})),
+				}));
+				// Ungrouped categories (only present on the "Other" bucket) become a
+				// synthetic family so the hierarchy stays uniform.
+				const ungrouped = (g.ungrouped_categories || []).map((c) => ({
 					name: c.name,
+					level: 'category',
 					value: c.total_minutes,
 					mergeKey: c.merge_key,
 					categoryId: c.category_id,
 					sessionLabel: c.session_label,
-				})),
-			})),
+					familyName: null,
+					groupName: g.name,
+					color: groupColor,
+				}));
+				if (ungrouped.length > 0) {
+					families.push({
+						name: 'Unlinked',
+						level: 'family',
+						color: groupColor,
+						groupName: g.name,
+						children: ungrouped,
+					});
+				}
+				return {
+					name: g.name,
+					level: 'group',
+					color: groupColor,
+					groupId: g.group_id,
+					children: families,
+				};
+			}),
 		};
 	}
 
@@ -159,59 +191,89 @@
 		for (const group of groups) {
 			const groupColor = (group.data as any).color || '#6B7280';
 
-			// Group bubble
+			// Group bubble (largest)
 			svg.append('circle')
 				.attr('cx', group.x!)
 				.attr('cy', group.y!)
 				.attr('r', group.r!)
 				.attr('fill', groupColor)
-				.attr('fill-opacity', 0.06)
+				.attr('fill-opacity', 0.05)
 				.attr('stroke', groupColor)
-				.attr('stroke-opacity', 0.25)
-				.attr('stroke-width', 1);
+				.attr('stroke-opacity', 0.3)
+				.attr('stroke-width', 1.5);
 
-			// Group label at top of group circle
 			svg.append('text')
 				.attr('x', group.x!)
-				.attr('y', group.y! - group.r! + 14)
+				.attr('y', group.y! - group.r! + 16)
 				.attr('text-anchor', 'middle')
 				.attr('fill', groupColor)
-				.attr('opacity', 0.6)
-				.style('font-size', '11px')
-				.style('font-weight', '600')
+				.attr('opacity', 0.75)
+				.style('font-size', '13px')
+				.style('font-weight', '700')
 				.style('pointer-events', 'none')
 				.text((group.data as any).name);
 
-			// Category circles — clean, label on hover only
-			const children = group.children || [];
-			for (const cat of children) {
-				const catData = cat.data as any;
-				const hours = (catData.value / 60).toFixed(1) + 'h';
-				const groupName = (group.data as any).name;
-				const session = catData.sessionLabel || '';
-				const cx = cat.x!;
-				const cy = cat.y!;
-				const cr = cat.r!;
+			const families = group.children || [];
+			for (const family of families) {
+				const famData = family.data as any;
+				const famColor = famData.color || groupColor;
 
+				// Family bubble (middle)
 				svg.append('circle')
-					.attr('cx', cx)
-					.attr('cy', cy)
-					.attr('r', cr)
-					.attr('fill', groupColor)
-					.attr('fill-opacity', 0.45)
-					.attr('stroke', groupColor)
-					.attr('stroke-opacity', 0.7)
-					.attr('stroke-width', 1)
-					.style('cursor', 'pointer')
-					.style('transition', 'fill-opacity 0.15s, stroke-width 0.15s')
-					.on('mouseenter', function () {
-						d3.select(this).attr('fill-opacity', 0.8).attr('stroke-width', 2.5);
-						showTooltip(cx, cy, cr, catData.name, hours, session, groupName);
-					})
-					.on('mouseleave', function () {
-						d3.select(this).attr('fill-opacity', 0.45).attr('stroke-width', 1);
-						hideTooltip();
-					});
+					.attr('cx', family.x!)
+					.attr('cy', family.y!)
+					.attr('r', family.r!)
+					.attr('fill', famColor)
+					.attr('fill-opacity', 0.12)
+					.attr('stroke', famColor)
+					.attr('stroke-opacity', 0.55)
+					.attr('stroke-width', 1);
+
+				// Family label only if there's room for it
+				if (family.r! > 28) {
+					svg.append('text')
+						.attr('x', family.x!)
+						.attr('y', family.y! - family.r! + 12)
+						.attr('text-anchor', 'middle')
+						.attr('fill', famColor)
+						.attr('opacity', 0.85)
+						.style('font-size', '10px')
+						.style('font-weight', '600')
+						.style('pointer-events', 'none')
+						.text(famData.name);
+				}
+
+				// Category circles (smallest, leaves)
+				const cats = family.children || [];
+				for (const cat of cats) {
+					const catData = cat.data as any;
+					const hours = (catData.value / 60).toFixed(1) + 'h';
+					const session = catData.sessionLabel || '';
+					const labelLine2 = `${session}  ·  ${famData.name}  ·  ${(group.data as any).name}`;
+					const cx = cat.x!;
+					const cy = cat.y!;
+					const cr = cat.r!;
+
+					svg.append('circle')
+						.attr('cx', cx)
+						.attr('cy', cy)
+						.attr('r', cr)
+						.attr('fill', famColor)
+						.attr('fill-opacity', 0.5)
+						.attr('stroke', famColor)
+						.attr('stroke-opacity', 0.85)
+						.attr('stroke-width', 1)
+						.style('cursor', 'pointer')
+						.style('transition', 'fill-opacity 0.15s, stroke-width 0.15s')
+						.on('mouseenter', function () {
+							d3.select(this).attr('fill-opacity', 0.85).attr('stroke-width', 2.5);
+							showTooltip(cx, cy, cr, catData.name, hours, session, `${famData.name} · ${(group.data as any).name}`);
+						})
+						.on('mouseleave', function () {
+							d3.select(this).attr('fill-opacity', 0.5).attr('stroke-width', 1);
+							hideTooltip();
+						});
+				}
 			}
 		}
 
@@ -287,20 +349,7 @@
 		</div>
 	{:else if data && data.groups.length === 0}
 		<div class="flex flex-1 flex-col items-center justify-center gap-3 text-center text-sm text-muted-foreground">
-			<p>No groups found. Import data and generate groups first.</p>
-			<button
-				onclick={async () => {
-					try {
-						await api.autoGenerateGroups();
-						loadData();
-					} catch (e: unknown) {
-						error = e instanceof Error ? e.message : 'Failed to generate groups';
-					}
-				}}
-				class="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-			>
-				Auto-Generate Groups
-			</button>
+			<p>No data yet — import a session to populate Groups, Families, and Categories.</p>
 		</div>
 	{:else}
 		<div class="relative" style="height: calc(100vh - 10rem);" bind:this={container}>

@@ -15,6 +15,7 @@ router = APIRouter(prefix="/import", tags=["import"])
 async def import_preview(
     study_csv: UploadFile = File(...),
     text_csv: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
 ):
     study_content = await study_csv.read()
     text_content = None
@@ -28,6 +29,7 @@ async def import_preview(
         result = await preview_import(
             study_content=study_content,
             study_filename=study_csv.filename,
+            db=db,
             text_content=text_content,
             text_filename=text_filename,
         )
@@ -82,6 +84,7 @@ async def import_batch(
             preview = await preview_import(
                 study_content=study_content,
                 study_filename=study_filename,
+                db=db,
                 text_content=text_content,
                 text_filename=text_filename if text_content else None,
             )

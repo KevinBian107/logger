@@ -84,6 +84,29 @@ pnpm dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
+### Build as a Mac app
+
+For a launch-and-use experience (DB lives in `~/Library/Application Support/Logger/`,
+no terminal windows, native window via WKWebView):
+
+```bash
+# One-time deps
+uv sync --extra macapp                          # adds pywebview + PyInstaller
+pnpm --dir frontend install
+
+# Build
+pnpm --dir frontend build                        # static SvelteKit -> frontend/build
+uv run python scripts/build_macapp.py            # PyInstaller -> dist/Logger.app
+
+# Launch
+open dist/Logger.app
+# First time: xattr -dr com.apple.quarantine dist/Logger.app  (Gatekeeper)
+```
+
+The packaged app reuses your existing `./logger.db` on first launch (copied
+to the user-data dir; the original is left untouched as a backup). Dev mode
+(`uvicorn --reload` + `pnpm dev`) is unaffected — these two paths coexist.
+
 ## Project Structure
 
 ```

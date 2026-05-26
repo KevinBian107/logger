@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type FamilyResponse } from '$lib/api/client';
+	import { api, type FamilyResponse, type CategoryGroupResponse } from '$lib/api/client';
 
 	let { onChanged }: { onChanged?: () => void } = $props();
 
 	let families = $state<FamilyResponse[]>([]);
+	let groups = $state<CategoryGroupResponse[]>([]);
 	let loading = $state(true);
 	let editingId = $state<number | null>(null);
 	let saving = $state(false);
@@ -14,32 +15,31 @@
 	// Edit form state
 	let editName = $state('');
 	let editDisplayName = $state('');
-	let editType = $state('other');
+	let editGroupId = $state<number | null>(null);
 	let editColor = $state('#6366f1');
 	let editDescription = $state('');
 
 	// New family form state
 	let newName = $state('');
 	let newDisplayName = $state('');
-	let newType = $state('research');
+	let newGroupId = $state<number | null>(null);
 	let newColor = $state('#6366f1');
 	let newDescription = $state('');
 
 	let error = $state('');
 
-	const TYPE_LABELS: Record<string, string> = {
-		research: 'Research',
-		course: 'Course',
-		personal: 'Personal',
-		other: 'Other',
+	// Group badge palette (falls back to group's color, otherwise per-name preset)
+	const GROUP_BADGE_TINTS: Record<string, string> = {
+		research: 'bg-blue-500/10 text-blue-700',
+		courses: 'bg-purple-500/10 text-purple-700',
+		personal: 'bg-amber-500/10 text-amber-700',
+		training: 'bg-red-500/10 text-red-700',
 	};
 
-	const TYPE_COLORS: Record<string, string> = {
-		research: 'bg-blue-500/10 text-blue-700',
-		course: 'bg-purple-500/10 text-purple-700',
-		personal: 'bg-amber-500/10 text-amber-700',
-		other: 'bg-gray-500/10 text-gray-600',
-	};
+	function groupTint(slug: string | null): string {
+		if (!slug) return 'bg-gray-500/10 text-gray-600';
+		return GROUP_BADGE_TINTS[slug] || 'bg-gray-500/10 text-gray-600';
+	}
 
 	function formatHours(minutes: number): string {
 		const hours = Math.floor(minutes / 60);
@@ -49,12 +49,12 @@
 		return `${hours}h ${mins}m`;
 	}
 
-	async function loadFamilies() {
+	async function loadAll() {
 		loading = true;
 		try {
-			families = await api.getFamilies();
+			[families, groups] = await Promise.all([api.getFamilies(), api.getGroups()]);
 		} catch (e) {
-			console.error('Failed to load families:', e);
+			console.error('Failed to load families/groups:', e);
 		}
 		loading = false;
 	}
@@ -63,7 +63,7 @@
 		editingId = fam.id;
 		editName = fam.name;
 		editDisplayName = fam.display_name || '';
-		editType = fam.family_type || 'other';
+		editGroupId = fam.group_id ?? null;
 		editColor = fam.color || '#6366f1';
 		editDescription = fam.description || '';
 		error = '';
@@ -82,12 +82,12 @@
 			await api.updateFamily(editingId, {
 				name: editName,
 				display_name: editDisplayName || undefined,
-				family_type: editType,
+				group_id: editGroupId ?? 0,  // 0 means detach
 				color: editColor,
 				description: editDescription || undefined,
 			});
 			editingId = null;
-			await loadFamilies();
+			await loadAll();
 			onChanged?.();
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to save';
@@ -99,7 +99,8 @@
 		creating = true;
 		newName = '';
 		newDisplayName = '';
-		newType = 'research';
+		// Default to the Research group if it exists
+		newGroupId = groups.find((g) => g.name === 'research')?.id ?? groups[0]?.id ?? null;
 		newColor = '#6366f1';
 		newDescription = '';
 		error = '';
@@ -118,11 +119,11 @@
 			await api.createFamily({
 				name: newName.trim().toLowerCase().replace(/\s+/g, '_'),
 				display_name: newDisplayName.trim() || newName.trim(),
-				family_type: newType,
+				group_id: newGroupId,
 				color: newColor,
 			});
 			creating = false;
-			await loadFamilies();
+			await loadAll();
 			onChanged?.();
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to create';
@@ -136,7 +137,7 @@
 		try {
 			await api.deleteFamily(familyId);
 			deleteConfirmId = null;
-			await loadFamilies();
+			await loadAll();
 			onChanged?.();
 		} catch (e: unknown) {
 			error = e instanceof Error ? e.message : 'Failed to delete';
@@ -144,7 +145,7 @@
 		saving = false;
 	}
 
-	onMount(loadFamilies);
+	onMount(loadAll);
 </script>
 
 <div class="space-y-4">
@@ -192,15 +193,15 @@
 					/>
 				</div>
 				<div>
-					<label class="block text-xs font-medium text-muted-foreground mb-1">Type</label>
+					<label class="block text-xs font-medium text-muted-foreground mb-1">Group</label>
 					<select
-						bind:value={newType}
+						bind:value={newGroupId}
 						class="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 					>
-						<option value="research">Research</option>
-						<option value="course">Course</option>
-						<option value="personal">Personal</option>
-						<option value="other">Other</option>
+						<option value={null}>— Unassigned —</option>
+						{#each groups as g}
+							<option value={g.id}>{g.display_name || g.name}</option>
+						{/each}
 					</select>
 				</div>
 				<div>
@@ -256,7 +257,7 @@
 				<thead>
 					<tr class="border-b border-border bg-muted/50">
 						<th class="px-4 py-2.5 text-left font-medium text-muted-foreground">Family</th>
-						<th class="px-4 py-2.5 text-left font-medium text-muted-foreground">Type</th>
+						<th class="px-4 py-2.5 text-left font-medium text-muted-foreground">Group</th>
 						<th class="px-4 py-2.5 text-right font-medium text-muted-foreground">Categories</th>
 						<th class="px-4 py-2.5 text-right font-medium text-muted-foreground">Hours</th>
 						<th class="w-20"></th>
@@ -286,15 +287,15 @@
 											/>
 										</div>
 										<div>
-											<label class="block text-xs font-medium text-muted-foreground mb-1">Type</label>
+											<label class="block text-xs font-medium text-muted-foreground mb-1">Group</label>
 											<select
-												bind:value={editType}
+												bind:value={editGroupId}
 												class="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 											>
-												<option value="research">Research</option>
-												<option value="course">Course</option>
-												<option value="personal">Personal</option>
-												<option value="other">Other</option>
+												<option value={null}>— Unassigned —</option>
+												{#each groups as g}
+													<option value={g.id}>{g.display_name || g.name}</option>
+												{/each}
 											</select>
 										</div>
 										<div>
@@ -357,9 +358,13 @@
 									</div>
 								</td>
 								<td class="px-4 py-2.5">
-									<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {TYPE_COLORS[fam.family_type || 'other'] || TYPE_COLORS['other']}">
-										{TYPE_LABELS[fam.family_type || 'other'] || fam.family_type}
-									</span>
+									{#if fam.group_name}
+										<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {groupTint(fam.group_name)}">
+											{fam.group_display_name || fam.group_name}
+										</span>
+									{:else}
+										<span class="text-xs text-muted-foreground italic">unassigned</span>
+									{/if}
 								</td>
 								<td class="px-4 py-2.5 text-right tabular-nums">
 									{fam.category_count}

@@ -220,7 +220,7 @@
 									{/if}
 								</td>
 								<td class="px-4 py-2">
-									{#if cat.auto_family}
+									{#if cat.auto_family_id}
 										<span class="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
 											{cat.family_display_name}
 											{#if cat.is_new_family}

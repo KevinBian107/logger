@@ -7,7 +7,14 @@ import {
 	type ChatStatusResponse
 } from '$lib/api/client';
 
-const API_BASE = 'http://localhost:8000/api';
+// Same resolution rules as client.ts — packaged app uses /api (same origin),
+// dev uses :8000, can be overridden by window.LOGGER_API_BASE or VITE_LOGGER_API_BASE.
+const RUNTIME_OVERRIDE_BASE = browser ? (window as Window & { LOGGER_API_BASE?: string }).LOGGER_API_BASE : undefined;
+const ENV_BASE = (import.meta.env.VITE_LOGGER_API_BASE as string | undefined) || undefined;
+const API_BASE =
+	RUNTIME_OVERRIDE_BASE ||
+	ENV_BASE ||
+	(browser && window.location.port === '5173' ? 'http://localhost:8000/api' : '/api');
 
 export const messages = writable<ChatMessageResponse[]>([]);
 export const pendingApproval = writable<ChatApprovalResponse | null>(null);

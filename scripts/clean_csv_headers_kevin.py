@@ -1,11 +1,29 @@
-"""Rewrite all legacy study CSV files to have clean category column names.
+"""Rewrite Kevin's legacy study CSV files in /data to have clean category column names.
 
-Before: training_fall24, cogs107a, math18hw, pp_spring23
-After:  Training, COGS 107A, Math 18, PP
+*** KEVIN-SPECIFIC SCRIPT — NOT GENERIC INFRASTRUCTURE ***
 
-Session info comes from the filename, not from column suffixes.
-Sub-variant columns (math18hw, math18review) are merged into one (Math 18)
-and their minute values are summed per row.
+The runtime import pipeline (backend/logger/services/import_service.py) is generic.
+This script is a one-off data-prep tool that encodes Kevin's project list and
+naming quirks, used to clean the legacy Excel-exported CSVs in /data before
+they're imported into the app.
+
+Before: training_fall24, cogs107a, math18hw, pp_spring23, ds_project_x
+After:  Training, COGS 107A, Math 18, PP, Data Science
+
+Generic transforms (work for anyone):
+  - Strip academic-quarter session suffixes (_fall24, _spring23, etc.)
+  - Merge course sub-variants (math18hw + math18review → Math 18, minutes summed)
+  - Normalize course-code casing (cogs107a → COGS 107A, Cogs 118C → COGS 118C)
+
+Kevin-specific transforms (hard-coded to his projects):
+  - PROJECT_DISPLAY: training/salk/mpi/pp/reading/swl/fmp/rplh/fd/cse257
+  - SPECIAL_DISPLAY: exam/driving/gradapp/startup/ex_phys/kdd-ds3-tnt/ds
+  - ds_project* → Data Science merge rule
+
+Idempotent: re-running on already-clean CSVs is a no-op.
+Destructive: overwrites files in-place — keep /data under git.
+
+Usage: uv run python scripts/clean_csv_headers_kevin.py
 """
 
 import csv

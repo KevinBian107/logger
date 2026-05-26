@@ -1,17 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { api, type SessionResponse, type FamilyResponse } from '$lib/api/client';
+	import { api, type SessionResponse, type FamilyResponse, type CategoryGroupResponse } from '$lib/api/client';
 
 	let { session, onUpdate }: { session: SessionResponse; onUpdate?: () => void } = $props();
 
 	let families = $state<FamilyResponse[]>([]);
+	let groups = $state<CategoryGroupResponse[]>([]);
 	let editingCatId = $state<number | null>(null);
 	let savingCatId = $state<number | null>(null);
 
-	// New family creation
+	// New family creation (inline from the editing row)
 	let creatingFamily = $state(false);
 	let newFamilyName = $state('');
-	let newFamilyType = $state('research');
+	let newFamilyGroupId = $state<number | null>(null);
 
 	// Add category
 	let addingCategory = $state(false);
@@ -19,8 +20,8 @@
 	let addingCatLoading = $state(false);
 	let addCatError = $state('');
 
-	// Track selected group for the editing row
-	let editGroup = $state<string>('');
+	// Track selected group_id for the editing row (0 = unassigned)
+	let editGroupId = $state<number>(0);
 	let editFamilyId = $state<number>(0);
 
 	// Rename
@@ -29,50 +30,63 @@
 	// Delete confirmation
 	let confirmDeleteId = $state<number | null>(null);
 
-	const GROUP_LABELS: Record<string, string> = {
-		research: 'Research',
-		course: 'Courses',
-		personal: 'Personal',
-		other: 'Other',
-	};
+	// Map group_id → group, used for badge label + color
+	const groupById = $derived.by(() => {
+		const m = new Map<number, CategoryGroupResponse>();
+		for (const g of groups) m.set(g.id, g);
+		return m;
+	});
 
-	const GROUP_COLORS: Record<string, string> = {
-		research: 'bg-blue-500/10 text-blue-700',
-		course: 'bg-purple-500/10 text-purple-700',
-		personal: 'bg-amber-500/10 text-amber-700',
-		other: 'bg-gray-500/10 text-gray-600',
-	};
+	function groupBadgeClass(slug: string | null | undefined): string {
+		switch (slug) {
+			case 'research': return 'bg-blue-500/10 text-blue-700';
+			case 'courses': return 'bg-purple-500/10 text-purple-700';
+			case 'personal': return 'bg-amber-500/10 text-amber-700';
+			case 'training': return 'bg-red-500/10 text-red-700';
+			default: return 'bg-gray-500/10 text-gray-600';
+		}
+	}
 
-	async function loadFamilies() {
+	async function loadFamiliesAndGroups() {
 		try {
-			families = await api.getFamilies();
+			[families, groups] = await Promise.all([api.getFamilies(), api.getGroups()]);
 		} catch { /* */ }
 	}
 
-	// Families filtered by selected group
+	// Families filtered by selected group_id (0 means show none — group required first)
 	const familiesForGroup = $derived(
-		editGroup ? families.filter(f => (f.family_type || 'other') === editGroup) : []
+		editGroupId ? families.filter(f => f.group_id === editGroupId) : []
 	);
 
-	// All unique group types from families
+	// Groups that actually have at least one family. Sorted by position.
 	const availableGroups = $derived.by(() => {
-		const types = new Set<string>();
-		for (const f of families) types.add(f.family_type || 'other');
-		return ['research', 'course', 'personal', 'other'].filter(t => types.has(t));
+		const used = new Set<number>();
+		for (const f of families) if (f.group_id) used.add(f.group_id);
+		return groups.filter(g => used.has(g.id));
 	});
+
+	// Resolve a category's group via its family (CategoryResponse doesn't carry group_id directly yet)
+	function groupForCategory(catFamilyId: number | null): CategoryGroupResponse | null {
+		if (!catFamilyId) return null;
+		const fam = families.find(f => f.id === catFamilyId);
+		if (!fam?.group_id) return null;
+		return groupById.get(fam.group_id) ?? null;
+	}
 
 	function startEditing(catId: number) {
 		const cat = session.categories.find(c => c.id === catId);
 		if (!cat) return;
 		editingCatId = catId;
-		editGroup = cat.family_type || '';
+		// Resolve the current group via the category's family
+		const fam = cat.family_id ? families.find(f => f.id === cat.family_id) : null;
+		editGroupId = fam?.group_id ?? 0;
 		editFamilyId = cat.family_id ?? 0;
 		editDisplayName = cat.display_name || cat.name;
 	}
 
 	function cancelEditing() {
 		editingCatId = null;
-		editGroup = '';
+		editGroupId = 0;
 		editFamilyId = 0;
 		editDisplayName = '';
 	}
@@ -91,6 +105,8 @@
 			}
 			await api.updateCategory(catId, updates);
 			editingCatId = null;
+			// Reload families so the next edit sees the latest group/family wiring
+			await loadFamiliesAndGroups();
 			onUpdate?.();
 		} catch (e) {
 			console.error('Failed to update category:', e);
@@ -104,11 +120,11 @@
 			const fam = await api.createFamily({
 				name: newFamilyName.trim().toLowerCase().replace(/\s+/g, '_'),
 				display_name: newFamilyName.trim(),
-				family_type: newFamilyType,
+				group_id: newFamilyGroupId,
 			});
-			families = [...families, fam];
-			// Auto-select the new family in the editor
-			editGroup = fam.family_type || 'other';
+			// Refetch so the new family carries its group_name/group_display_name from the server
+			await loadFamiliesAndGroups();
+			editGroupId = fam.group_id ?? newFamilyGroupId ?? 0;
 			editFamilyId = fam.id;
 			newFamilyName = '';
 			creatingFamily = false;
@@ -157,7 +173,7 @@
 		return (minutes / 60).toFixed(1);
 	}
 
-	onMount(loadFamilies);
+	onMount(loadFamiliesAndGroups);
 </script>
 
 <div class="space-y-6">
@@ -276,16 +292,18 @@
 							</td>
 
 							{#if editingCatId === cat.id}
-								<!-- Editing mode: group + family selectors -->
+								<!-- Editing mode: group + family selectors. The group list is the
+								     live /api/groups response (all 4 system groups + any user-added),
+								     so newly created families show up under their actual group. -->
 								<td class="px-4 py-2.5">
 									<select
-										bind:value={editGroup}
+										bind:value={editGroupId}
 										onchange={() => editFamilyId = 0}
 										class="w-full rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 									>
-										<option value="">None</option>
-										{#each availableGroups as g}
-											<option value={g}>{GROUP_LABELS[g] || g}</option>
+										<option value={0}>None</option>
+										{#each groups as g}
+											<option value={g.id}>{g.display_name || g.name}</option>
 										{/each}
 									</select>
 								</td>
@@ -293,7 +311,7 @@
 									<div class="flex items-center gap-1.5">
 										<select
 											bind:value={editFamilyId}
-											disabled={!editGroup}
+											disabled={!editGroupId}
 											class="w-full rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-40"
 										>
 											<option value={0}>None</option>
@@ -302,7 +320,7 @@
 											{/each}
 										</select>
 										<button
-											onclick={() => { creatingFamily = true; newFamilyType = editGroup || 'other'; }}
+											onclick={() => { creatingFamily = true; newFamilyGroupId = editGroupId || null; }}
 											title="New family"
 											class="shrink-0 rounded p-1 text-muted-foreground hover:text-primary transition-colors"
 										>
@@ -313,11 +331,17 @@
 									</div>
 								</td>
 							{:else}
-								<!-- Display mode: blue badges -->
+								<!-- Display mode: group badge resolved via the category's family -->
 								<td class="px-4 py-2.5">
-									{#if cat.family_type}
-										<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {GROUP_COLORS[cat.family_type] || GROUP_COLORS['other']}">
-											{GROUP_LABELS[cat.family_type] || cat.family_type}
+									{#if groupForCategory(cat.family_id)}
+										{@const g = groupForCategory(cat.family_id)!}
+										<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {groupBadgeClass(g.name)}">
+											{g.display_name || g.name}
+										</span>
+									{:else if cat.family_type}
+										<!-- Fall back to legacy column for families that haven't been migrated -->
+										<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {groupBadgeClass(cat.family_type === 'course' ? 'courses' : cat.family_type)}">
+											{cat.family_type.charAt(0).toUpperCase() + cat.family_type.slice(1)}
 										</span>
 									{:else}
 										<span class="text-muted-foreground">—</span>
@@ -408,13 +432,13 @@
 										<div>
 											<label class="block text-xs font-medium text-muted-foreground mb-1">Group</label>
 											<select
-												bind:value={newFamilyType}
+												bind:value={newFamilyGroupId}
 												class="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 											>
-												<option value="research">Research</option>
-												<option value="course">Course</option>
-												<option value="personal">Personal</option>
-												<option value="other">Other</option>
+												<option value={null}>— Unassigned —</option>
+												{#each groups as g}
+													<option value={g.id}>{g.display_name || g.name}</option>
+												{/each}
 											</select>
 										</div>
 										<button

@@ -11,8 +11,20 @@
 	} from '$lib/stores/timer';
 	import StatCard from '$lib/components/dashboard/StatCard.svelte';
 	import ActiveTimers from '$lib/components/dashboard/ActiveTimers.svelte';
+	import WebsiteBanner from '$lib/components/dashboard/WebsiteBanner.svelte';
 	import StopDialog from '$lib/components/timer/StopDialog.svelte';
 	import TodayLog from '$lib/components/timer/TodayLog.svelte';
+
+	const todayLabel = new Date().toLocaleDateString(undefined, {
+		weekday: 'long',
+		month: 'long',
+		day: 'numeric',
+	});
+
+	// SVG icon strings used by stat cards
+	const ICON_CLOCK = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 7v5l3 2"/></svg>`;
+	const ICON_LIST = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/></svg>`;
+	const ICON_FLAME = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2c1 4 5 6 5 11a5 5 0 11-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-4-1-6 1-10z"/></svg>`;
 
 	// Use local date, not UTC
 	const now = new Date();
@@ -130,48 +142,68 @@
 </script>
 
 <div class="space-y-6">
-	<!-- Greeting + session badge -->
-	<div>
-		<h1 class="text-2xl font-bold">{getGreeting()}</h1>
+	<WebsiteBanner />
+
+	<!-- Hero: greeting + date + active-session pill -->
+	<div class="flex flex-wrap items-end justify-between gap-3">
+		<div>
+			<h1 class="text-3xl font-bold tracking-tight">{getGreeting()}</h1>
+			<p class="mt-1 text-sm text-muted-foreground">{todayLabel}</p>
+		</div>
 		{#if $activeSession}
-			<p class="mt-1 text-sm text-muted-foreground">
-				<span class="inline-flex items-center gap-1.5">
-					<span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
-					{$activeSession.label}
+			<a
+				href="/data"
+				class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-sm transition-colors hover:border-primary/40 hover:bg-card/80"
+			>
+				<span class="relative flex h-2 w-2">
+					<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-50"></span>
+					<span class="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
 				</span>
-			</p>
+				<span class="font-medium">{$activeSession.label}</span>
+				<span class="text-muted-foreground">· active</span>
+			</a>
 		{:else}
-			<p class="mt-1 text-sm text-muted-foreground">
-				No active session — <a href="/data" class="text-primary underline">go to Data</a>
-			</p>
+			<a
+				href="/data"
+				class="inline-flex items-center gap-2 rounded-full border border-dashed border-border px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+			>
+				No active session — set one up
+			</a>
 		{/if}
 	</div>
 
 	{#if $activeSession}
 		<!-- Stat cards -->
-		<div class="grid grid-cols-4 gap-4">
+		<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 			<StatCard
 				label="Today's Total"
 				value={formatHoursMinutes(dailyActivity?.total_minutes ?? 0)}
+				sublabel={entryCount === 0 ? 'Nothing logged yet' : undefined}
+				accent={(dailyActivity?.total_minutes ?? 0) > 0}
+				icon={ICON_CLOCK}
 			/>
 			<StatCard
 				label="Entries Today"
 				value={String(entryCount)}
+				sublabel={entryCount === 1 ? 'entry' : 'entries'}
+				icon={ICON_LIST}
 			/>
 			<StatCard
 				label="Current Streak"
 				value="{streak.current}d"
-				sublabel="Longest: {streak.longest}d"
+				sublabel="Longest {streak.longest}d"
+				accent={streak.current > 0}
+				icon={ICON_FLAME}
 			/>
 			<!-- Quick start -->
-			<div class="rounded-lg border border-border bg-card p-4">
-				<div class="text-xs font-medium text-muted-foreground">Quick Start</div>
-				<div class="mt-2 flex items-center gap-2">
+			<div class="group relative overflow-hidden rounded-xl border border-border bg-card p-4 transition-all hover:shadow-sm">
+				<div class="text-xs font-medium uppercase tracking-wider text-muted-foreground">Quick Start</div>
+				<div class="mt-2.5 flex items-center gap-2">
 					<select
 						bind:value={quickCategoryId}
-						class="flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:border-primary focus:outline-none"
+						class="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 					>
-						<option value={null}>Category...</option>
+						<option value={null}>Choose category…</option>
 						{#each categories as cat}
 							<option value={cat.id}>{cat.display_name || cat.name}</option>
 						{/each}
@@ -179,8 +211,9 @@
 					<button
 						onclick={handleQuickStart}
 						disabled={!quickCategoryId || startingQuick}
-						class="rounded-md bg-primary p-1.5 text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+						class="shrink-0 rounded-md bg-primary p-2 text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100"
 						title="Start timer"
+						aria-label="Start timer"
 					>
 						<svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
 					</button>
@@ -198,40 +231,80 @@
 
 		<!-- Today's log -->
 		{#if dailyActivity}
-			<div>
-				<!-- Observation bar -->
+			<div class="space-y-5">
 				{#if dailyActivity.observations.length > 0}
-					<h2 class="mb-3 text-lg font-semibold">Today's Breakdown</h2>
-					<div class="mb-4 flex h-6 overflow-hidden rounded-full bg-muted">
-						{#each dailyActivity.observations as obs}
-							{@const pct = dailyActivity.total_minutes > 0
-								? (obs.minutes / dailyActivity.total_minutes) * 100
-								: 0}
-							{#if pct > 0}
-								<div
-									class="flex items-center justify-center text-xs font-medium text-white bg-primary"
-									style="width: {pct}%; opacity: {0.5 + (pct / 200)}"
-									title="{obs.category_name}: {obs.minutes}m"
-								>
-									{#if pct > 8}
-										{obs.category_name}
-									{/if}
-								</div>
-							{/if}
-						{/each}
-					</div>
+					<section>
+						<div class="mb-3 flex items-baseline justify-between">
+							<h2 class="text-lg font-semibold">Today's Breakdown</h2>
+							<span class="text-xs text-muted-foreground">{formatHoursMinutes(dailyActivity.total_minutes)} across {dailyActivity.observations.length} categor{dailyActivity.observations.length === 1 ? 'y' : 'ies'}</span>
+						</div>
+						<div class="flex h-7 overflow-hidden rounded-full bg-muted shadow-inner">
+							{#each dailyActivity.observations as obs}
+								{@const pct = dailyActivity.total_minutes > 0
+									? (obs.minutes / dailyActivity.total_minutes) * 100
+									: 0}
+								{#if pct > 0}
+									<div
+										class="flex items-center justify-center bg-primary text-xs font-medium text-primary-foreground transition-opacity hover:opacity-100"
+										style="width: {pct}%; opacity: {0.55 + (pct / 250)}"
+										title="{obs.category_name}: {obs.minutes}m ({pct.toFixed(0)}%)"
+									>
+										{#if pct > 10}
+											<span class="truncate px-2">{obs.category_name}</span>
+										{/if}
+									</div>
+								{/if}
+							{/each}
+						</div>
+					</section>
 				{/if}
 
-				<h2 class="mb-3 text-lg font-semibold">Entries</h2>
-				<TodayLog
-					timerEntries={dailyActivity.timer_entries}
-					manualEntries={dailyActivity.manual_entries}
-					observations={dailyActivity.observations}
-					onDeleteManual={handleDeleteManual}
-					onDeleteTimer={handleDeleteTimer}
-				/>
+				<section>
+					<div class="mb-3 flex items-baseline justify-between">
+						<h2 class="text-lg font-semibold">Today's Entries</h2>
+						{#if entryCount > 0}
+							<span class="text-xs text-muted-foreground">{entryCount} entr{entryCount === 1 ? 'y' : 'ies'}</span>
+						{/if}
+					</div>
+					{#if entryCount === 0}
+						<div class="rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center">
+							<p class="text-sm font-medium">Nothing logged today yet</p>
+							<p class="mt-1 text-xs text-muted-foreground">Pick a category above and hit play, or use the <a href="/timer" class="text-primary hover:underline">Timer page</a> for manual entry.</p>
+						</div>
+					{:else}
+						<TodayLog
+							timerEntries={dailyActivity.timer_entries}
+							manualEntries={dailyActivity.manual_entries}
+							observations={dailyActivity.observations}
+							onDeleteManual={handleDeleteManual}
+							onDeleteTimer={handleDeleteTimer}
+						/>
+					{/if}
+				</section>
 			</div>
 		{/if}
+	{:else}
+		<!-- No active session — empty state with CTA -->
+		<div class="rounded-2xl border border-dashed border-border bg-muted/20 p-10 text-center">
+			<div class="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+				<svg class="h-6 w-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25"/>
+				</svg>
+			</div>
+			<h2 class="text-lg font-semibold">No active session</h2>
+			<p class="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+				Sessions are how log(ger) organizes time — typically one per academic quarter or work cycle. Create one or import a CSV to get started.
+			</p>
+			<a
+				href="/data"
+				class="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+			>
+				Open Data page
+				<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+					<path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+				</svg>
+			</a>
+		</div>
 	{/if}
 </div>
 

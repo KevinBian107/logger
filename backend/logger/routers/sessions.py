@@ -10,7 +10,7 @@ from logger.schemas import (
     CategoryResponse,
 )
 from logger.services.family_service import (
-    detect_family, get_or_create_family, KNOWN_FAMILIES, DEPARTMENT_FAMILIES,
+    detect_family, load_match_rules, get_or_create_family_by_name,
 )
 
 router = APIRouter(tags=["sessions"])
@@ -168,17 +168,18 @@ async def create_session(data: SessionCreate, db: AsyncSession = Depends(get_db)
                 db.add(new_cat)
 
     # Add explicitly specified categories
+    rules = await load_match_rules(db) if data.categories else None
     for i, cat_data in enumerate(data.categories):
         family_id = None
         if cat_data.family:
-            family = await get_or_create_family(cat_data.family, db)
+            family = await get_or_create_family_by_name(cat_data.family, db)
             family_id = family.id
 
         display = cat_data.display_name
         if not display:
-            detected = detect_family(cat_data.name)
-            if detected:
-                display = KNOWN_FAMILIES.get(detected) or DEPARTMENT_FAMILIES.get(detected) or cat_data.name
+            detected_id = detect_family(cat_data.name, rules)
+            if detected_id is not None:
+                display = rules.family_display.get(detected_id) or cat_data.name
             else:
                 display = cat_data.name
 

@@ -9,7 +9,7 @@ from logger.models import (
     Session, Category, DailyRecord, Observation, TextEntry, CategoryFamily,
 )
 from logger.services.family_service import (
-    detect_family, get_or_create_family, KNOWN_FAMILIES, DEPARTMENT_FAMILIES,
+    detect_family, load_match_rules, LoadedRules,
 )
 from logger.services.category_normalization import compute_merge_plan
 from logger.utils.csv_utils import (
@@ -22,7 +22,7 @@ from logger.utils.date_utils import parse_date, normalize_day
 _preview_cache: dict[str, dict] = {}
 
 
-def _parse_study_csv(rows: list[dict[str, str]], filename: str) -> dict:
+def _parse_study_csv(rows: list[dict[str, str]], filename: str, rules: LoadedRules) -> dict:
     """Parse a study CSV into structured data for preview/import."""
     year, season = detect_session_from_filename(filename)
     warnings: list[str] = []
@@ -113,20 +113,18 @@ def _parse_study_csv(rows: list[dict[str, str]], filename: str) -> dict:
 
     # Build category previews from merge plan
     cat_previews = []
-    existing_families = set()
+    existing_family_ids: set[int] = set()
     for plan in merge_plan.values():
         # Use display_name for family detection (clean names from CSV)
-        family_key = detect_family(plan.display_name)
-        is_new = family_key is not None and family_key not in existing_families
-        if family_key:
-            existing_families.add(family_key)
+        family_id = detect_family(plan.display_name, rules)
+        is_new = family_id is not None and family_id not in existing_family_ids
+        if family_id is not None:
+            existing_family_ids.add(family_id)
         cat_previews.append({
             "name": plan.merge_key,
             "display_name": plan.display_name,
-            "auto_family": family_key,
-            "family_display_name": (
-                KNOWN_FAMILIES.get(family_key) or DEPARTMENT_FAMILIES.get(family_key) or family_key
-            ) if family_key else None,
+            "auto_family_id": family_id,
+            "family_display_name": rules.family_display.get(family_id) if family_id is not None else None,
             "is_new_family": is_new,
             "source_columns": plan.source_columns,
         })
@@ -207,12 +205,17 @@ def _parse_text_csv(rows: list[dict[str, str]]) -> tuple[list[dict], list[str]]:
 async def preview_import(
     study_content: bytes,
     study_filename: str,
+    db: AsyncSession,
     text_content: bytes | None = None,
     text_filename: str | None = None,
 ) -> dict:
-    """Parse CSVs and return a preview without writing to DB."""
+    """Parse CSVs and return a preview without writing to DB.
+
+    DB is read-only here — we just need it to load match rules for auto-family detection.
+    """
+    rules = await load_match_rules(db)
     study_rows = read_csv_safe(study_content)
-    parsed = _parse_study_csv(study_rows, study_filename)
+    parsed = _parse_study_csv(study_rows, study_filename, rules)
 
     text_entries: list[dict] = []
     text_warnings: list[str] = []
@@ -284,12 +287,7 @@ async def confirm_import(preview_id: str, db: AsyncSession) -> dict:
     for i, cat_info in enumerate(parsed["categories"]):
         merge_key = cat_info["name"]  # already the merge_key after normalization
         display_name = cat_info.get("display_name") or merge_key
-        family_key = cat_info["auto_family"]
-        family_id = None
-
-        if family_key:
-            family = await get_or_create_family(family_key, db)
-            family_id = family.id
+        family_id = cat_info.get("auto_family_id")
 
         cat = Category(
             session_id=session.id,

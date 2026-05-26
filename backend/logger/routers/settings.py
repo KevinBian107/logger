@@ -1,11 +1,12 @@
 import os
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.config import DB_PATH
-from logger.database import get_db
+from logger.database import export_db_bytes, get_db, replace_db_file
 from logger.models import Setting, Session, Observation, TextEntry
 from logger.schemas import SettingResponse, SettingUpdate, DBInfoResponse
 
@@ -50,4 +51,39 @@ async def db_info(db: AsyncSession = Depends(get_db)):
         session_count=session_count,
         observation_count=obs_count,
         text_entry_count=text_count,
+    )
+
+
+@router.post("/db/replace")
+async def db_replace(file: UploadFile = File(...)):
+    """Replace the current SQLite database with an uploaded .db file.
+
+    Backs up the existing DB to <path>.bak.<timestamp> before swapping.
+    Runs schema migrations against the new file so older schemas still load.
+    """
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    if len(contents) > 200 * 1024 * 1024:  # 200 MB safety cap for a personal app
+        raise HTTPException(status_code=413, detail="File too large (limit 200 MB)")
+
+    try:
+        result = await replace_db_file(contents)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Replace failed: {e!s}")
+    return result
+
+
+@router.get("/db/download")
+async def db_download():
+    """Stream the current SQLite database back so the user can keep a copy."""
+    if not DB_PATH.exists():
+        raise HTTPException(status_code=404, detail="DB file not found")
+    data = await export_db_bytes()
+    return Response(
+        content=data,
+        media_type="application/vnd.sqlite3",
+        headers={"Content-Disposition": 'attachment; filename="logger.db"'},
     )

@@ -81,7 +81,8 @@ class FamilyCreate(BaseModel):
     display_name: str | None = None
     description: str | None = None
     color: str | None = None
-    family_type: str = "other"
+    group_id: int | None = None
+    family_type: str = "other"  # legacy — written for back-compat; group_id is preferred
 
 
 class FamilyUpdate(BaseModel):
@@ -89,7 +90,8 @@ class FamilyUpdate(BaseModel):
     display_name: str | None = None
     description: str | None = None
     color: str | None = None
-    family_type: str | None = None
+    group_id: int | None = None
+    family_type: str | None = None  # legacy
 
 
 class FamilyResponse(BaseModel):
@@ -98,9 +100,32 @@ class FamilyResponse(BaseModel):
     display_name: str | None
     description: str | None
     color: str | None
-    family_type: str | None
+    group_id: int | None = None
+    group_name: str | None = None
+    group_display_name: str | None = None
+    family_type: str | None  # legacy, kept for back-compat
     category_count: int = 0
     total_minutes: int = 0
+
+    model_config = {"from_attributes": True}
+
+
+# ── Family match rules ────────────────────────────────────
+
+class FamilyMatchRuleCreate(BaseModel):
+    family_id: int
+    match_type: str  # "exact" | "prefix"
+    pattern: str
+
+
+class FamilyMatchRuleResponse(BaseModel):
+    id: int
+    family_id: int
+    family_name: str | None = None
+    family_display_name: str | None = None
+    match_type: str
+    pattern: str
+    position: int
 
     model_config = {"from_attributes": True}
 
@@ -110,7 +135,7 @@ class FamilyResponse(BaseModel):
 class ImportCategoryPreview(BaseModel):
     name: str
     display_name: str | None = None
-    auto_family: str | None
+    auto_family_id: int | None
     family_display_name: str | None
     is_new_family: bool
     source_columns: list[str] = []
@@ -257,7 +282,7 @@ class StreakResponse(BaseModel):
     longest: int
 
 
-# ── Groups ──────────────────────────────────────────────
+# ── Groups (top-level semantic bucket) ──────────────────
 
 class CategoryGroupCreate(BaseModel):
     name: str
@@ -270,14 +295,7 @@ class CategoryGroupUpdate(BaseModel):
     display_name: str | None = None
     description: str | None = None
     color: str | None = None
-
-
-class CategoryGroupMemberInfo(BaseModel):
-    category_id: int
-    category_name: str | None = None
-    display_name: str | None = None
-    session_id: int | None = None
-    total_minutes: int = 0
+    position: int | None = None
 
 
 class CategoryGroupResponse(BaseModel):
@@ -286,8 +304,18 @@ class CategoryGroupResponse(BaseModel):
     display_name: str | None
     description: str | None
     color: str | None
-    is_auto: bool
-    member_count: int = 0
+    position: int = 0
+    is_system: bool = False
+    family_count: int = 0
+    total_minutes: int = 0
+
+
+class GroupFamilyEntry(BaseModel):
+    id: int
+    name: str
+    display_name: str | None = None
+    color: str | None = None
+    category_count: int = 0
     total_minutes: int = 0
 
 
@@ -297,28 +325,40 @@ class CategoryGroupDetailResponse(BaseModel):
     display_name: str | None
     description: str | None
     color: str | None
-    is_auto: bool
-    members: list[CategoryGroupMemberInfo] = []
+    position: int = 0
+    is_system: bool = False
+    families: list[GroupFamilyEntry] = []
 
 
-class GroupMembersUpdate(BaseModel):
-    category_ids: list[int]
+class FamilyGroupAssignment(BaseModel):
+    group_id: int | None  # None to detach
 
 
 class BubbleCategoryData(BaseModel):
     category_id: int
     name: str
     merge_key: str
-    total_minutes: int
+    session_id: int | None = None
     session_label: str | None = None
+    total_minutes: int
+
+
+class BubbleFamilyData(BaseModel):
+    family_id: int
+    name: str
+    slug: str
+    color: str | None
+    total_minutes: int
+    categories: list[BubbleCategoryData]
 
 
 class BubbleGroupData(BaseModel):
     group_id: int | None
     name: str
+    slug: str
     color: str | None
-    is_auto: bool
-    categories: list[BubbleCategoryData]
+    families: list[BubbleFamilyData] = []
+    ungrouped_categories: list[BubbleCategoryData] = []
     total_minutes: int
 
 

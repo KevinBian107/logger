@@ -9,6 +9,13 @@
 	let saveMessage = $state<string | null>(null);
 	let saving = $state(false);
 
+	// Database replace/download
+	let dbReplaceInput = $state<HTMLInputElement | null>(null);
+	let dbReplacing = $state(false);
+	let dbMessage = $state<string | null>(null);
+	let dbMessageIsError = $state(false);
+	let pendingReplaceFile = $state<File | null>(null);
+
 	// GitHub
 	let githubUsername = $state('');
 	let savedGithubUsername = $state<string | null>(null);
@@ -159,6 +166,74 @@
 		} finally {
 			githubSaving = false;
 		}
+	}
+
+	function flashDbMessage(msg: string, isError = false) {
+		dbMessage = msg;
+		dbMessageIsError = isError;
+		if (!isError) setTimeout(() => (dbMessage = null), 4000);
+	}
+
+	function pickReplaceFile() {
+		dbReplaceInput?.click();
+	}
+
+	function onReplaceFileChosen(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // allow re-selecting the same file
+		if (!file) return;
+		if (!file.name.toLowerCase().endsWith('.db') && !file.name.toLowerCase().endsWith('.sqlite')) {
+			flashDbMessage('Please choose a .db or .sqlite file', true);
+			return;
+		}
+		pendingReplaceFile = file;
+		dbMessage = null;
+	}
+
+	async function confirmReplaceDB() {
+		if (!pendingReplaceFile) return;
+		dbReplacing = true;
+		dbMessage = null;
+		try {
+			const res = await api.replaceDB(pendingReplaceFile);
+			pendingReplaceFile = null;
+			dbInfo = await api.getDBInfo();
+			flashDbMessage(
+				res.backup_path
+					? `Database replaced. Previous DB backed up to ${res.backup_path.split('/').pop()}.`
+					: 'Database replaced.'
+			);
+		} catch (e) {
+			flashDbMessage(e instanceof Error ? e.message : 'Replace failed', true);
+		} finally {
+			dbReplacing = false;
+		}
+	}
+
+	function cancelReplace() {
+		pendingReplaceFile = null;
+		dbMessage = null;
+	}
+
+	async function handleDownloadDB() {
+		try {
+			const blob = await api.downloadDB();
+			const ts = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `logger-${ts}.db`;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (e) {
+			flashDbMessage(e instanceof Error ? e.message : 'Download failed', true);
+		}
+	}
+
+	function formatPath(path: string): string {
+		// Replace home dir with ~ for readability
+		return path.replace(/^\/Users\/[^/]+/, '~');
 	}
 
 	async function handleModelChange(modelId: string) {
@@ -398,15 +473,17 @@
 		</div>
 	</section>
 
-	<!-- Database Info -->
+	<!-- Database -->
 	<section class="space-y-4">
 		<h2 class="text-lg font-semibold">Database</h2>
-		<div class="rounded-lg border border-border bg-card p-5">
+		<div class="space-y-4 rounded-lg border border-border bg-card p-5">
 			{#if dbInfo}
 				<div class="space-y-3 text-sm">
-					<div class="flex justify-between">
-						<span class="text-muted-foreground">Path</span>
-						<span class="font-mono text-xs">{dbInfo.db_path}</span>
+					<div class="flex justify-between gap-3">
+						<span class="text-muted-foreground shrink-0">Path</span>
+						<span class="truncate text-right font-mono text-xs" title={dbInfo.db_path}>
+							{formatPath(dbInfo.db_path)}
+						</span>
 					</div>
 					<div class="flex justify-between">
 						<span class="text-muted-foreground">Size</span>
@@ -428,6 +505,83 @@
 			{:else}
 				<p class="text-sm text-muted-foreground">Could not connect to backend</p>
 			{/if}
+
+			<div class="border-t border-border pt-4">
+				<h3 class="text-sm font-medium">Link an existing database</h3>
+				<p class="mt-1 text-xs text-muted-foreground">
+					Point log(ger) at a different <code class="rounded bg-muted px-1 py-0.5 text-[10px]">.db</code> file.
+					The current database will be backed up automatically before being replaced. To import
+					from CSV instead, use the <a href="/data" class="text-primary hover:underline">Data page</a>.
+				</p>
+
+				<div class="mt-3 flex flex-wrap items-center gap-2">
+					<button
+						onclick={pickReplaceFile}
+						disabled={dbReplacing}
+						class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+					>
+						<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+						</svg>
+						Choose .db file…
+					</button>
+
+					<button
+						onclick={handleDownloadDB}
+						class="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+						title="Download current database"
+					>
+						<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+						</svg>
+						Download current
+					</button>
+
+					<input
+						bind:this={dbReplaceInput}
+						type="file"
+						accept=".db,.sqlite,application/vnd.sqlite3"
+						class="hidden"
+						onchange={onReplaceFileChosen}
+					/>
+				</div>
+
+				{#if pendingReplaceFile}
+					<div class="mt-3 rounded-md border border-amber-300/50 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-700/30 p-3">
+						<p class="text-sm font-medium">Replace database?</p>
+						<p class="mt-0.5 text-xs text-muted-foreground">
+							Selected: <span class="font-mono">{pendingReplaceFile.name}</span>
+							({(pendingReplaceFile.size / 1024 / 1024).toFixed(2)} MB)
+						</p>
+						<p class="mt-1.5 text-xs text-muted-foreground">
+							The current database will be saved as a timestamped backup next to it.
+							Existing in-flight requests may briefly fail during the swap.
+						</p>
+						<div class="mt-3 flex gap-2">
+							<button
+								onclick={confirmReplaceDB}
+								disabled={dbReplacing}
+								class="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:opacity-50"
+							>
+								{dbReplacing ? 'Replacing…' : 'Replace database'}
+							</button>
+							<button
+								onclick={cancelReplace}
+								disabled={dbReplacing}
+								class="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground"
+							>
+								Cancel
+							</button>
+						</div>
+					</div>
+				{/if}
+
+				{#if dbMessage}
+					<p class="mt-2 text-xs {dbMessageIsError ? 'text-destructive' : 'text-green-600 dark:text-green-400'}">
+						{dbMessage}
+					</p>
+				{/if}
+			</div>
 		</div>
 	</section>
 </div>

@@ -37,10 +37,32 @@ class CategoryFamily(Base):
     display_name = Column(Text)
     description = Column(Text)
     color = Column(Text)
-    family_type = Column(Text, default="other")
+    family_type = Column(Text, default="other")  # legacy — superseded by group_id; kept for compat
+    group_id = Column(Integer, ForeignKey("category_groups.id", ondelete="SET NULL"))
     created_at = Column(Text, server_default=text("(datetime('now'))"))
 
     categories = relationship("Category", back_populates="family")
+    match_rules = relationship("FamilyMatchRule", back_populates="family", cascade="all, delete-orphan")
+    group = relationship("CategoryGroup", back_populates="families")
+
+
+class FamilyMatchRule(Base):
+    __tablename__ = "family_match_rules"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    family_id = Column(Integer, ForeignKey("category_families.id", ondelete="CASCADE"), nullable=False)
+    match_type = Column(Text, nullable=False)  # "exact" | "prefix"
+    pattern = Column(Text, nullable=False)     # lowercased
+    position = Column(Integer, default=0)
+    created_at = Column(Text, server_default=text("(datetime('now'))"))
+
+    __table_args__ = (
+        UniqueConstraint("match_type", "pattern"),
+        Index("idx_family_match_rules_family", "family_id"),
+        Index("idx_family_match_rules_lookup", "match_type", "pattern"),
+    )
+
+    family = relationship("CategoryFamily", back_populates="match_rules")
 
 
 class Category(Base):
@@ -193,34 +215,25 @@ class ChatMessage(Base):
 
 
 class CategoryGroup(Base):
+    """Top-level semantic group: Research, Training, Personal, Courses, ...
+
+    Re-purposed from the prior auto-generated visualization-grouping role.
+    A group contains one or more CategoryFamilies; each family contains
+    one or more per-session Categories. The chain is: Group → Family → Category.
+    """
     __tablename__ = "category_groups"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(Text, nullable=False, unique=True)
+    name = Column(Text, nullable=False, unique=True)            # slug, e.g. "research"
     display_name = Column(Text)
     description = Column(Text)
     color = Column(Text)
-    is_auto = Column(Boolean, default=False)
+    position = Column(Integer, default=0)
+    is_system = Column(Boolean, default=False)                  # seeded vs user-added
+    is_auto = Column(Boolean, default=False)                    # legacy column, retained for SQLite compat
     created_at = Column(Text, server_default=text("(datetime('now'))"))
 
-    members = relationship("CategoryGroupMember", back_populates="group", cascade="all, delete-orphan")
-
-
-class CategoryGroupMember(Base):
-    __tablename__ = "category_group_members"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    group_id = Column(Integer, ForeignKey("category_groups.id", ondelete="CASCADE"), nullable=False)
-    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("group_id", "category_id"),
-        Index("idx_group_members_group", "group_id"),
-        Index("idx_group_members_category", "category_id"),
-    )
-
-    group = relationship("CategoryGroup", back_populates="members")
-    category = relationship("Category")
+    families = relationship("CategoryFamily", back_populates="group")
 
 
 class Setting(Base):

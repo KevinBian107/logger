@@ -3,14 +3,47 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.database import get_db
-from logger.models import Category, CategoryFamily, Session, Observation
+from logger.models import Category, CategoryFamily, CategoryGroup, Session, Observation
 from logger.schemas import (
     CategoryCreate, CategoryResponse, CategoryUpdate,
     FamilyCreate, FamilyResponse, FamilyUpdate,
 )
 from logger.services.family_service import (
-    detect_family, get_or_create_family, KNOWN_FAMILIES, DEPARTMENT_FAMILIES,
+    detect_family, load_match_rules, get_or_create_family_by_name, get_family_by_id,
 )
+
+
+async def _family_response(fam: CategoryFamily, db: AsyncSession) -> FamilyResponse:
+    cat_count = (await db.execute(
+        select(func.count(Category.id)).where(Category.family_id == fam.id)
+    )).scalar() or 0
+    total = (await db.execute(
+        select(func.coalesce(func.sum(Observation.minutes), 0))
+        .join(Category, Observation.category_id == Category.id)
+        .where(Category.family_id == fam.id)
+    )).scalar() or 0
+
+    group_name = None
+    group_display = None
+    if fam.group_id:
+        g = await db.get(CategoryGroup, fam.group_id)
+        if g:
+            group_name = g.name
+            group_display = g.display_name
+
+    return FamilyResponse(
+        id=fam.id,
+        name=fam.name,
+        display_name=fam.display_name,
+        description=fam.description,
+        color=fam.color,
+        group_id=fam.group_id,
+        group_name=group_name,
+        group_display_name=group_display,
+        family_type=fam.family_type,
+        category_count=cat_count,
+        total_minutes=total,
+    )
 
 router = APIRouter(tags=["categories"])
 
@@ -77,24 +110,25 @@ async def add_category(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Category '{data.name}' already exists in this session")
 
+    rules = await load_match_rules(db)
     family_id = None
     family_name = None
     if data.family:
-        family = await get_or_create_family(data.family, db)
+        family = await get_or_create_family_by_name(data.family, db)
         family_id = family.id
         family_name = family.name
-    elif not data.family:
-        detected = detect_family(data.name)
-        if detected:
-            family = await get_or_create_family(detected, db)
-            family_id = family.id
-            family_name = family.name
+    else:
+        detected_id = detect_family(data.name, rules)
+        if detected_id is not None:
+            family = await get_family_by_id(detected_id, db)
+            family_id = detected_id
+            family_name = family.name if family else None
 
     display = data.display_name
     if not display:
-        detected = detect_family(data.name)
-        if detected:
-            display = KNOWN_FAMILIES.get(detected) or DEPARTMENT_FAMILIES.get(detected) or data.name
+        detected_id = detect_family(data.name, rules)
+        if detected_id is not None:
+            display = rules.family_display.get(detected_id) or data.name
         else:
             display = data.name
 
@@ -167,29 +201,7 @@ async def delete_category(category_id: int, db: AsyncSession = Depends(get_db)):
 async def list_families(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(CategoryFamily).order_by(CategoryFamily.name))
     families = result.scalars().all()
-
-    responses = []
-    for fam in families:
-        cat_count = await db.execute(
-            select(func.count(Category.id)).where(Category.family_id == fam.id)
-        )
-        total = await db.execute(
-            select(func.coalesce(func.sum(Observation.minutes), 0))
-            .join(Category, Observation.category_id == Category.id)
-            .where(Category.family_id == fam.id)
-        )
-        responses.append(FamilyResponse(
-            id=fam.id,
-            name=fam.name,
-            display_name=fam.display_name,
-            description=fam.description,
-            color=fam.color,
-            family_type=fam.family_type,
-            category_count=cat_count.scalar(),
-            total_minutes=total.scalar(),
-        ))
-
-    return responses
+    return [await _family_response(fam, db) for fam in families]
 
 
 @router.get("/families/{family_id}", response_model=FamilyResponse)
@@ -197,26 +209,7 @@ async def get_family(family_id: int, db: AsyncSession = Depends(get_db)):
     fam = await db.get(CategoryFamily, family_id)
     if not fam:
         raise HTTPException(status_code=404, detail="Family not found")
-
-    cat_count = await db.execute(
-        select(func.count(Category.id)).where(Category.family_id == fam.id)
-    )
-    total = await db.execute(
-        select(func.coalesce(func.sum(Observation.minutes), 0))
-        .join(Category, Observation.category_id == Category.id)
-        .where(Category.family_id == fam.id)
-    )
-
-    return FamilyResponse(
-        id=fam.id,
-        name=fam.name,
-        display_name=fam.display_name,
-        description=fam.description,
-        color=fam.color,
-        family_type=fam.family_type,
-        category_count=cat_count.scalar(),
-        total_minutes=total.scalar(),
-    )
+    return await _family_response(fam, db)
 
 
 @router.post("/families", response_model=FamilyResponse)
@@ -232,22 +225,13 @@ async def create_family(data: FamilyCreate, db: AsyncSession = Depends(get_db)):
         display_name=data.display_name or data.name.title(),
         description=data.description,
         color=data.color,
+        group_id=data.group_id,
         family_type=data.family_type,
     )
     db.add(fam)
     await db.commit()
     await db.refresh(fam)
-
-    return FamilyResponse(
-        id=fam.id,
-        name=fam.name,
-        display_name=fam.display_name,
-        description=fam.description,
-        color=fam.color,
-        family_type=fam.family_type,
-        category_count=0,
-        total_minutes=0,
-    )
+    return await _family_response(fam, db)
 
 
 @router.put("/families/{family_id}", response_model=FamilyResponse)
@@ -275,31 +259,14 @@ async def update_family(
         fam.color = data.color
     if data.description is not None:
         fam.description = data.description
+    if data.group_id is not None:
+        fam.group_id = data.group_id if data.group_id != 0 else None  # 0 means detach
     if data.family_type is not None:
         fam.family_type = data.family_type
 
     await db.commit()
     await db.refresh(fam)
-
-    cat_count = await db.execute(
-        select(func.count(Category.id)).where(Category.family_id == fam.id)
-    )
-    total = await db.execute(
-        select(func.coalesce(func.sum(Observation.minutes), 0))
-        .join(Category, Observation.category_id == Category.id)
-        .where(Category.family_id == fam.id)
-    )
-
-    return FamilyResponse(
-        id=fam.id,
-        name=fam.name,
-        display_name=fam.display_name,
-        description=fam.description,
-        color=fam.color,
-        family_type=fam.family_type,
-        category_count=cat_count.scalar(),
-        total_minutes=total.scalar(),
-    )
+    return await _family_response(fam, db)
 
 
 @router.delete("/families/{family_id}")

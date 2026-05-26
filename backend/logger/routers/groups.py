@@ -1,3 +1,9 @@
+"""Group endpoints. A Group is the top-level semantic bucket (Research,
+Training, Personal, Courses) that contains CategoryFamilies.
+
+The bubble-data endpoint walks the full Group → Family → Category tree.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -7,7 +13,7 @@ from logger.schemas import (
     CategoryGroupUpdate,
     CategoryGroupResponse,
     CategoryGroupDetailResponse,
-    GroupMembersUpdate,
+    FamilyGroupAssignment,
     BubbleDataResponse,
 )
 from logger.services import group_service
@@ -17,7 +23,7 @@ router = APIRouter(prefix="/groups", tags=["groups"])
 
 @router.get("", response_model=list[CategoryGroupResponse])
 async def list_groups(db: AsyncSession = Depends(get_db)):
-    return await group_service.get_groups(db)
+    return await group_service.list_groups(db)
 
 
 @router.get("/bubble-data", response_model=BubbleDataResponse)
@@ -54,23 +60,19 @@ async def update_group(group_id: int, data: CategoryGroupUpdate, db: AsyncSessio
 
 @router.delete("/{group_id}")
 async def delete_group(group_id: int, db: AsyncSession = Depends(get_db)):
-    if not await group_service.delete_group(group_id, db):
+    try:
+        ok = await group_service.delete_group(group_id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
         raise HTTPException(status_code=404, detail="Group not found")
     return {"ok": True}
 
 
-@router.post("/{group_id}/members")
-async def add_members(group_id: int, data: GroupMembersUpdate, db: AsyncSession = Depends(get_db)):
-    added = await group_service.add_members(group_id, data.category_ids, db)
-    return {"added": added}
-
-
-@router.delete("/{group_id}/members")
-async def remove_members(group_id: int, data: GroupMembersUpdate, db: AsyncSession = Depends(get_db)):
-    removed = await group_service.remove_members(group_id, data.category_ids, db)
-    return {"removed": removed}
-
-
-@router.post("/auto-generate")
-async def auto_generate(db: AsyncSession = Depends(get_db)):
-    return await group_service.auto_generate_groups(db)
+@router.put("/families/{family_id}/group")
+async def set_family_group(family_id: int, data: FamilyGroupAssignment, db: AsyncSession = Depends(get_db)):
+    """Assign a family to a group (or detach via group_id=null)."""
+    ok = await group_service.assign_family_to_group(family_id, data.group_id, db)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Family not found")
+    return {"ok": True, "family_id": family_id, "group_id": data.group_id}
