@@ -179,9 +179,12 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "search_text_entries",
         "description": (
-            "Substring search over the daily narrative log (text_entries.notes + "
-            "study_materials). Returns matching dates + snippets. Use for content "
-            "questions like 'when did I work on the rebuttal?' Case-insensitive."
+            "Substring search over all free-form text the user has written: "
+            "timer_entries.description, manual_entries.description, and the daily "
+            "narrative in text_entries (notes + study_materials + location). "
+            "Returns matching entries with date, source, snippet, and (for timer/"
+            "manual) the category. Use for content questions like 'when did I work "
+            "on the rebuttal?' or 'days I was at the library'. Case-insensitive."
         ),
         "input_schema": {
             "type": "object",
@@ -189,7 +192,13 @@ TOOLS: list[dict[str, Any]] = [
                 "keywords": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Substrings to OR-match (case-insensitive).",
+                    "description": "Substrings to match (case-insensitive).",
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["all", "any"],
+                    "description": "'all' (default): every keyword must appear in the same "
+                                   "entry. 'any': match if any keyword appears.",
                 },
                 "date_range": {
                     "type": "array",
@@ -197,9 +206,36 @@ TOOLS: list[dict[str, Any]] = [
                     "minItems": 2,
                     "maxItems": 2,
                 },
-                "limit": {"type": "integer", "description": "Max snippets (default 20)."},
+                "limit": {"type": "integer", "description": "Max snippets (default 30)."},
             },
             "required": ["keywords"],
+        },
+    },
+    {
+        "name": "summarize_text_in_range",
+        "description": (
+            "Return ALL free-form text content (timer descriptions, manual entry "
+            "descriptions, daily notes) within a date range, optionally restricted "
+            "to a specific family. Use this when the user asks for a narrative "
+            "summary or 'what was I working on' without specific keywords — Claude "
+            "can read the raw prose and synthesize. Output is capped to keep "
+            "context manageable."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date_range": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 2,
+                    "maxItems": 2,
+                    "description": "[start_date, end_date] in YYYY-MM-DD. Required.",
+                },
+                "family_name": {"type": "string"},
+                "family_id": {"type": "integer"},
+                "limit": {"type": "integer", "description": "Max entries returned (default 100)."},
+            },
+            "required": ["date_range"],
         },
     },
 ]
@@ -571,34 +607,225 @@ async def tool_get_daily_breakdown(args: dict, db: AsyncSession) -> dict:
 
 
 async def tool_search_text_entries(args: dict, db: AsyncSession) -> dict:
+    """Substring search across timer descriptions, manual descriptions, and
+    daily text entries. Default match mode is ALL keywords required in the
+    same entry; mode='any' loosens to OR-match.
+    """
     keywords: list[str] = [k.strip().lower() for k in (args.get("keywords") or []) if k.strip()]
     if not keywords:
         return {"matches": [], "count": 0}
-    limit = int(args.get("limit", 20))
+    mode = args.get("mode", "all").lower()
+    if mode not in ("all", "any"):
+        mode = "all"
+    limit = int(args.get("limit", 30))
     date_range = args.get("date_range")
 
-    stmt = select(TextEntry)
-    stmt = _apply_date_range(stmt, TextEntry.date, date_range)
-    stmt = stmt.order_by(TextEntry.date.desc())
-    rows = (await db.execute(stmt)).scalars().all()
+    def matches(hay: str) -> list[str] | None:
+        """Return matched keywords if `mode` is satisfied, else None."""
+        hay_l = hay.lower()
+        hits = [k for k in keywords if k in hay_l]
+        if mode == "all" and len(hits) != len(keywords):
+            return None
+        if mode == "any" and not hits:
+            return None
+        return hits
 
-    matches = []
-    for te in rows:
-        hay_parts = [te.notes or "", te.study_materials or "", te.location or ""]
-        hay = " ".join(hay_parts).lower()
-        if any(k in hay for k in keywords):
-            matched_keywords = [k for k in keywords if k in hay]
-            snippet = (te.study_materials or te.notes or "")[:300]
-            matches.append({
+    # --- 1. Timer entries (each one has its own description + location) ---
+    tstmt = (
+        select(TimerEntry, Category)
+        .outerjoin(Category, TimerEntry.category_id == Category.id)
+        .where(TimerEntry.is_active == False)  # noqa: E712
+    )
+    tstmt = _apply_date_range(tstmt, TimerEntry.date, date_range)
+    tstmt = tstmt.order_by(TimerEntry.date.desc())
+    timer_rows = (await db.execute(tstmt)).all()
+
+    out: list[dict] = []
+
+    for te_row in timer_rows:
+        timer, cat = te_row
+        hay = " ".join([timer.description or "", timer.location or ""])
+        if not hay.strip():
+            continue
+        hits = matches(hay)
+        if hits is None:
+            continue
+        snippet = (timer.description or timer.location or "")[:300]
+        out.append({
+            "date": timer.date,
+            "source": "timer",
+            "snippet": snippet,
+            "matched_keywords": hits,
+            "category": (cat.display_name or cat.name) if cat else None,
+            "minutes": timer.duration_minutes,
+            "location": timer.location,
+        })
+        if len(out) >= limit:
+            return {"matches": out, "count": len(out), "keywords": keywords, "mode": mode}
+
+    # --- 2. Manual entries (description + location) ---
+    mstmt = (
+        select(ManualEntry, Category)
+        .outerjoin(Category, ManualEntry.category_id == Category.id)
+    )
+    mstmt = _apply_date_range(mstmt, ManualEntry.date, date_range)
+    mstmt = mstmt.order_by(ManualEntry.date.desc())
+    manual_rows = (await db.execute(mstmt)).all()
+
+    for me_row in manual_rows:
+        manual, cat = me_row
+        hay = " ".join([manual.description or "", manual.location or ""])
+        if not hay.strip():
+            continue
+        hits = matches(hay)
+        if hits is None:
+            continue
+        snippet = (manual.description or manual.location or "")[:300]
+        out.append({
+            "date": manual.date,
+            "source": "manual",
+            "snippet": snippet,
+            "matched_keywords": hits,
+            "category": (cat.display_name or cat.name) if cat else None,
+            "minutes": manual.duration_minutes,
+            "location": manual.location,
+        })
+        if len(out) >= limit:
+            return {"matches": out, "count": len(out), "keywords": keywords, "mode": mode}
+
+    # --- 3. Daily text_entries (aggregated narrative, location, notes) ---
+    estmt = select(TextEntry)
+    estmt = _apply_date_range(estmt, TextEntry.date, date_range)
+    estmt = estmt.order_by(TextEntry.date.desc())
+    text_rows = (await db.execute(estmt)).scalars().all()
+
+    for te in text_rows:
+        hay = " ".join([te.notes or "", te.study_materials or "", te.location or ""])
+        if not hay.strip():
+            continue
+        hits = matches(hay)
+        if hits is None:
+            continue
+        snippet = (te.study_materials or te.notes or "")[:300]
+        out.append({
+            "date": te.date,
+            "source": "text_entry",
+            "snippet": snippet,
+            "matched_keywords": hits,
+            "location": te.location,
+        })
+        if len(out) >= limit:
+            return {"matches": out, "count": len(out), "keywords": keywords, "mode": mode}
+
+    return {"matches": out, "count": len(out), "keywords": keywords, "mode": mode}
+
+
+async def tool_summarize_text_in_range(args: dict, db: AsyncSession) -> dict:
+    """Return ALL free-form text within a date range, optionally restricted to
+    a family. No keyword filtering — gives Claude the raw prose to read and
+    synthesize when the user asks for an open-ended summary.
+    """
+    date_range = args.get("date_range")
+    if not date_range or len(date_range) != 2 or not all(date_range):
+        return {"error": "date_range [start, end] is required"}
+    limit = int(args.get("limit", 100))
+
+    # Optional family filter via name or id
+    family_filter_cat_ids: set[int] | None = None
+    family_info: dict | None = None
+    if args.get("family_name") or args.get("family_id") is not None:
+        fam = await _resolve_family(args, db)
+        if not fam:
+            return {"error": f"No family found matching {args.get('family_name') or args.get('family_id')}"}
+        cats_q = await db.execute(select(Category.id).where(Category.family_id == fam.id))
+        family_filter_cat_ids = {row[0] for row in cats_q.all()}
+        family_info = {
+            "id": fam.id,
+            "name": fam.display_name or fam.name,
+        }
+
+    entries: list[dict] = []
+
+    # Timer entries with descriptions
+    tstmt = (
+        select(TimerEntry, Category)
+        .outerjoin(Category, TimerEntry.category_id == Category.id)
+        .where(TimerEntry.is_active == False)  # noqa: E712
+        .where(TimerEntry.date >= date_range[0])
+        .where(TimerEntry.date <= date_range[1])
+        .order_by(TimerEntry.date.desc())
+    )
+    timer_rows = (await db.execute(tstmt)).all()
+    for timer, cat in timer_rows:
+        if family_filter_cat_ids is not None and timer.category_id not in family_filter_cat_ids:
+            continue
+        if not (timer.description or "").strip():
+            continue
+        entries.append({
+            "date": timer.date,
+            "source": "timer",
+            "category": (cat.display_name or cat.name) if cat else None,
+            "text": timer.description,
+            "minutes": timer.duration_minutes,
+            "location": timer.location,
+        })
+
+    # Manual entries with descriptions
+    mstmt = (
+        select(ManualEntry, Category)
+        .outerjoin(Category, ManualEntry.category_id == Category.id)
+        .where(ManualEntry.date >= date_range[0])
+        .where(ManualEntry.date <= date_range[1])
+        .order_by(ManualEntry.date.desc())
+    )
+    manual_rows = (await db.execute(mstmt)).all()
+    for manual, cat in manual_rows:
+        if family_filter_cat_ids is not None and manual.category_id not in family_filter_cat_ids:
+            continue
+        if not (manual.description or "").strip():
+            continue
+        entries.append({
+            "date": manual.date,
+            "source": "manual",
+            "category": (cat.display_name or cat.name) if cat else None,
+            "text": manual.description,
+            "minutes": manual.duration_minutes,
+            "location": manual.location,
+        })
+
+    # Daily text_entries — only when there's NO family filter (text_entries are
+    # day-level, not per-family). Including these gives a richer narrative view.
+    if family_filter_cat_ids is None:
+        estmt = (
+            select(TextEntry)
+            .where(TextEntry.date >= date_range[0])
+            .where(TextEntry.date <= date_range[1])
+            .order_by(TextEntry.date.desc())
+        )
+        text_rows = (await db.execute(estmt)).scalars().all()
+        for te in text_rows:
+            raw = te.study_materials or te.notes
+            if not raw or not raw.strip():
+                continue
+            entries.append({
                 "date": te.date,
-                "snippet": snippet,
-                "matched_keywords": matched_keywords,
+                "source": "text_entry",
+                "category": None,
+                "text": raw,
+                "minutes": None,
                 "location": te.location,
             })
-            if len(matches) >= limit:
-                break
 
-    return {"matches": matches, "count": len(matches), "keywords": keywords}
+    # Sort by date desc, then truncate to limit
+    entries.sort(key=lambda e: e["date"], reverse=True)
+    truncated = entries[:limit]
+    return {
+        "date_range": date_range,
+        "family": family_info,
+        "total_entries": len(entries),
+        "returned_entries": len(truncated),
+        "entries": truncated,
+    }
 
 
 TOOL_EXECUTORS: dict[str, Callable[[dict, AsyncSession], Awaitable[dict]]] = {
@@ -609,6 +836,7 @@ TOOL_EXECUTORS: dict[str, Callable[[dict, AsyncSession], Awaitable[dict]]] = {
     "get_session_breakdown": tool_get_session_breakdown,
     "get_daily_breakdown": tool_get_daily_breakdown,
     "search_text_entries": tool_search_text_entries,
+    "summarize_text_in_range": tool_summarize_text_in_range,
 }
 
 

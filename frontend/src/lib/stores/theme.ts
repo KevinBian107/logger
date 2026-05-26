@@ -3,9 +3,20 @@ import { browser } from '$app/environment';
 
 type Theme = 'light' | 'dark' | 'system';
 
+// Default to light — users on systems with dark-mode set system-wide were getting
+// the dark app even though most of the UI is tuned for light. Settings still lets
+// them switch to dark or system at any time.
+const DEFAULT_THEME: Theme = 'light';
+
 function getInitialTheme(): Theme {
-	if (!browser) return 'system';
-	return (localStorage.getItem('theme') as Theme) || 'system';
+	if (!browser) return DEFAULT_THEME;
+	const stored = localStorage.getItem('theme') as Theme | null;
+	// One-time migration: when the default flipped from 'system' to 'light',
+	// users who never explicitly picked a theme were stuck on whatever their OS
+	// preferred. Treat unset OR the old 'system' fallback as "no choice made"
+	// and use the new default. Explicit 'light' / 'dark' choices are kept.
+	if (!stored || stored === 'system') return DEFAULT_THEME;
+	return stored;
 }
 
 function applyTheme(theme: Theme) {
