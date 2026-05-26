@@ -179,6 +179,47 @@
 		(dailyActivity?.manual_entries.length ?? 0) +
 		(dailyActivity?.observations.length ?? 0)
 	);
+
+	// Client-side breakdown by category, summed across all three sources.
+	// Needed because the backend filters observations to source='import' (to
+	// avoid M+I duplication in TodayLog), so today's observations[] is empty
+	// when only timers/manuals were logged. Aggregating here gives a complete
+	// picture without double-counting (sources are disjoint by design).
+	const dailyBreakdown = $derived.by(() => {
+		if (!dailyActivity) return [] as { name: string; minutes: number }[];
+		const totals = new Map<string, number>();
+		for (const t of dailyActivity.timer_entries) {
+			const name = t.category_name || 'Untitled';
+			totals.set(name, (totals.get(name) ?? 0) + (t.duration_minutes || 0));
+		}
+		for (const m of dailyActivity.manual_entries) {
+			const name = m.category_name || 'Untitled';
+			totals.set(name, (totals.get(name) ?? 0) + (m.duration_minutes || 0));
+		}
+		for (const o of dailyActivity.observations) {
+			const name = o.category_name || 'Untitled';
+			totals.set(name, (totals.get(name) ?? 0) + (o.minutes || 0));
+		}
+		return Array.from(totals.entries())
+			.map(([name, minutes]) => ({ name, minutes }))
+			.filter((r) => r.minutes > 0)
+			.sort((a, b) => b.minutes - a.minutes);
+	});
+
+	function colorForCategory(name: string): string {
+		// Same stable-hash palette as TodayTimeline so the bar matches the chart.
+		const PALETTE = [
+			'#6366F1', '#10B981', '#F59E0B', '#EF4444',
+			'#A855F7', '#06B6D4', '#EC4899', '#84CC16',
+			'#3B82F6', '#F97316', '#14B8A6', '#D946EF',
+		];
+		const k = (name || '·').trim();
+		let h = 0;
+		for (let i = 0; i < k.length; i++) {
+			h = ((h << 5) - h + k.charCodeAt(i)) | 0;
+		}
+		return PALETTE[Math.abs(h) % PALETTE.length];
+	}
 </script>
 
 <div class="space-y-6">
@@ -295,28 +336,38 @@
 					/>
 				{/if}
 
-				{#if dailyActivity.observations.length > 0}
+				{#if dailyBreakdown.length > 0}
 					<section>
 						<div class="mb-3 flex items-baseline justify-between">
 							<h2 class="text-lg font-semibold">{viewingToday ? "Today's Breakdown" : `${shortDateLabel(selectedDate)} · Breakdown`}</h2>
-							<span class="text-xs text-muted-foreground">{formatHoursMinutes(dailyActivity.total_minutes)} across {dailyActivity.observations.length} categor{dailyActivity.observations.length === 1 ? 'y' : 'ies'}</span>
+							<span class="text-xs text-muted-foreground">{formatHoursMinutes(dailyActivity.total_minutes)} across {dailyBreakdown.length} categor{dailyBreakdown.length === 1 ? 'y' : 'ies'}</span>
 						</div>
 						<div class="flex h-7 overflow-hidden rounded-full bg-muted shadow-inner">
-							{#each dailyActivity.observations as obs}
+							{#each dailyBreakdown as item}
 								{@const pct = dailyActivity.total_minutes > 0
-									? (obs.minutes / dailyActivity.total_minutes) * 100
+									? (item.minutes / dailyActivity.total_minutes) * 100
 									: 0}
 								{#if pct > 0}
 									<div
-										class="flex items-center justify-center bg-primary text-xs font-medium text-primary-foreground transition-opacity hover:opacity-100"
-										style="width: {pct}%; opacity: {0.55 + (pct / 250)}"
-										title="{obs.category_name}: {obs.minutes}m ({pct.toFixed(0)}%)"
+										class="flex items-center justify-center text-xs font-medium text-white transition-opacity hover:opacity-100"
+										style="width: {pct}%; background-color: {colorForCategory(item.name)};"
+										title="{item.name}: {item.minutes}m ({pct.toFixed(0)}%)"
 									>
 										{#if pct > 10}
-											<span class="truncate px-2">{obs.category_name}</span>
+											<span class="truncate px-2">{item.name}</span>
 										{/if}
 									</div>
 								{/if}
+							{/each}
+						</div>
+						<!-- Legend (only show categories big enough to be a meaningful slice) -->
+						<div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+							{#each dailyBreakdown as item}
+								<span class="inline-flex items-center gap-1.5 text-muted-foreground">
+									<span class="h-2 w-2 rounded-full" style="background-color: {colorForCategory(item.name)};"></span>
+									<span class="text-foreground">{item.name}</span>
+									<span class="font-mono">{formatHoursMinutes(item.minutes)}</span>
+								</span>
 							{/each}
 						</div>
 					</section>
