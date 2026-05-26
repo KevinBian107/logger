@@ -222,6 +222,17 @@ class TimerStartRequest(BaseModel):
 class TimerStopRequest(BaseModel):
     description: str | None = None
     location: str | None = None
+    # Optional date override (YYYY-MM-DD). Used by the late-night attribution
+    # prompt — when stopping a timer at 1am that should belong to "yesterday".
+    override_date: str | None = None
+
+
+class TimerEntryUpdate(BaseModel):
+    category_id: int | None = None
+    date: str | None = None
+    duration_minutes: int | None = None
+    description: str | None = None
+    location: str | None = None
 
 
 class TimerEntryResponse(BaseModel):
@@ -249,6 +260,14 @@ class ManualEntryCreate(BaseModel):
     category_id: int
     date: str
     duration_minutes: int
+    description: str | None = None
+    location: str | None = None
+
+
+class ManualEntryUpdate(BaseModel):
+    category_id: int | None = None
+    date: str | None = None
+    duration_minutes: int | None = None
     description: str | None = None
     location: str | None = None
 

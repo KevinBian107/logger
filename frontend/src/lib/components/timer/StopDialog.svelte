@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { TimerEntryResponse } from '$lib/api/client';
 	import { computeElapsedSeconds } from '$lib/stores/timer';
+	import LateNightDatePrompt from './LateNightDatePrompt.svelte';
+	import { isLateNight } from '$lib/utils/lateNight';
 
 	let {
 		timer,
@@ -9,13 +11,19 @@
 		onCancel
 	}: {
 		timer: TimerEntryResponse;
-		onSave: (id: number, description: string, location: string) => void;
+		// overrideDate is non-null only when the late-night prompt shifted the
+		// date to "yesterday"; the dashboard threads it to api.stopTimer.
+		onSave: (id: number, description: string, location: string, overrideDate: string | null) => void;
 		onDiscard: (id: number) => void;
 		onCancel: () => void;
 	} = $props();
 
 	let description = $state('');
 	let location = $state('');
+	// Date the entry will be attributed to. Defaults via LateNightDatePrompt
+	// (yesterday in the 0–5am window, today otherwise) but the user can flip it.
+	let attributedDate = $state<string>(timer.date);
+	const lateNight = isLateNight();
 
 	const elapsed = $derived(computeElapsedSeconds(timer));
 	const roundedMinutes = $derived(Math.max(1, Math.round(elapsed / 60)));
@@ -50,6 +58,8 @@
 		</div>
 
 		<div class="mt-4 space-y-3">
+			<LateNightDatePrompt bind:value={attributedDate} />
+
 			<div>
 				<label for="stop-desc" class="block text-sm font-medium text-muted-foreground">Description</label>
 				<textarea
@@ -87,7 +97,12 @@
 					Cancel
 				</button>
 				<button
-					onclick={() => onSave(timer.id, description, location)}
+					onclick={() => onSave(
+						timer.id,
+						description,
+						location,
+						lateNight && attributedDate && attributedDate !== timer.date ? attributedDate : null
+					)}
 					class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
 				>
 					Save & Log

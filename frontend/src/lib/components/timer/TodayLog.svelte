@@ -6,13 +6,17 @@
 		manualEntries,
 		observations = [],
 		onDeleteManual,
-		onDeleteTimer
+		onDeleteTimer,
+		onEditTimer,
+		onEditManual,
 	}: {
 		timerEntries: TimerEntryResponse[];
 		manualEntries: ManualEntryResponse[];
 		observations?: ObservationResponse[];
 		onDeleteManual: (id: number) => void;
 		onDeleteTimer: (id: number) => void;
+		onEditTimer?: (id: number) => void;
+		onEditManual?: (id: number) => void;
 	} = $props();
 
 	interface LogItem {
@@ -109,26 +113,29 @@
 						<td class="px-3 py-2 text-right tabular-nums">{formatDuration(item.minutes)}</td>
 						<td class="px-3 py-2 text-muted-foreground">{truncate(item.description, 40)}</td>
 						<td class="px-3 py-2 text-right">
-							{#if item.type === 'manual'}
-								<button
-									onclick={() => onDeleteManual(item.id)}
-									class="rounded p-1 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600"
-									title="Delete entry"
-								>
-									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
-							{:else if item.type === 'timer'}
-								<button
-									onclick={() => onDeleteTimer(item.id)}
-									class="rounded p-1 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600"
-									title="Delete entry"
-								>
-									<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
-										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-									</svg>
-								</button>
+							{#if item.type === 'manual' || item.type === 'timer'}
+								<div class="inline-flex items-center gap-0.5">
+									<button
+										onclick={() => item.type === 'manual' ? onEditManual?.(item.id) : onEditTimer?.(item.id)}
+										class="rounded p-1 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+										title="Edit entry"
+										aria-label="Edit entry"
+									>
+										<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"/>
+										</svg>
+									</button>
+									<button
+										onclick={() => item.type === 'manual' ? onDeleteManual(item.id) : onDeleteTimer(item.id)}
+										class="rounded p-1 text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600"
+										title="Delete entry"
+										aria-label="Delete entry"
+									>
+										<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+										</svg>
+									</button>
+								</div>
 							{/if}
 						</td>
 					</tr>

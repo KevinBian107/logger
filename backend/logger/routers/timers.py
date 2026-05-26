@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.database import get_db
 from logger.models import Session, Category
-from logger.schemas import TimerStartRequest, TimerStopRequest, TimerEntryResponse
+from logger.schemas import TimerStartRequest, TimerStopRequest, TimerEntryResponse, TimerEntryUpdate
 from logger.services import timer_service
 
 router = APIRouter(prefix="/timers", tags=["timers"])
@@ -80,7 +80,31 @@ async def stop_timer(
 ):
     try:
         timer = await timer_service.stop_timer(
-            timer_id, data.description, data.location, db
+            timer_id,
+            description=data.description,
+            location=data.location,
+            db=db,
+            override_date=data.override_date,
+        )
+        await db.commit()
+        return await _timer_response(timer, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.put("/{timer_id}", response_model=TimerEntryResponse)
+async def update_timer(
+    timer_id: int, data: TimerEntryUpdate, db: AsyncSession = Depends(get_db)
+):
+    try:
+        timer = await timer_service.update_timer_entry(
+            timer_id,
+            db,
+            category_id=data.category_id,
+            date=data.date,
+            duration_minutes=data.duration_minutes,
+            description=data.description,
+            location=data.location,
         )
         await db.commit()
         return await _timer_response(timer, db)

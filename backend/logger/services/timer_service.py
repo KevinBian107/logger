@@ -5,8 +5,12 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from logger.models import TimerEntry
-from logger.services.observation_service import upsert_observation, upsert_text_entry
+from logger.models import Category, TimerEntry
+from logger.services.observation_service import (
+    upsert_observation,
+    upsert_text_entry,
+    subtract_observation,
+)
 
 
 def _now() -> datetime:
@@ -72,6 +76,7 @@ async def stop_timer(
     description: str | None,
     location: str | None,
     db: AsyncSession,
+    override_date: str | None = None,
 ) -> TimerEntry:
     timer = await db.get(TimerEntry, timer_id)
     if not timer or not timer.is_active:
@@ -100,7 +105,13 @@ async def stop_timer(
     timer.location = location
     timer.updated_at = now.isoformat()
 
-    # Upsert observation
+    # Late-night date override: lets the user attribute a timer that crossed
+    # (or was started after) midnight to "yesterday" instead of the wall-clock
+    # date the timer was originally tagged with.
+    if override_date and override_date != timer.date:
+        timer.date = override_date
+
+    # Upsert observation under the (possibly overridden) date
     await upsert_observation(
         session_id=timer.session_id,
         category_id=timer.category_id,
@@ -119,6 +130,75 @@ async def stop_timer(
         db=db,
     )
 
+    await db.flush()
+    return timer
+
+
+async def update_timer_entry(
+    timer_id: int,
+    db: AsyncSession,
+    *,
+    category_id: int | None = None,
+    date: str | None = None,
+    duration_minutes: int | None = None,
+    description: str | None = None,
+    location: str | None = None,
+) -> TimerEntry:
+    """Edit a stopped timer entry. Re-balances observations if (date, category,
+    duration) changes — subtracts the old aggregate, then adds the new one.
+
+    Active (un-stopped) timers can't be edited; stop them first.
+    None means "don't change this field".
+    """
+    timer = await db.get(TimerEntry, timer_id)
+    if not timer:
+        raise ValueError("Timer not found")
+    if timer.is_active:
+        raise ValueError("Cannot edit an active timer — stop it first")
+
+    old_date = timer.date
+    old_cat = timer.category_id
+    old_mins = timer.duration_minutes or 0
+
+    if category_id is not None and category_id != timer.category_id:
+        cat = await db.get(Category, category_id)
+        if not cat or cat.session_id != timer.session_id:
+            raise ValueError("Category not found or not in this session")
+        timer.category_id = category_id
+
+    if date is not None:
+        timer.date = date
+    if duration_minutes is not None:
+        if duration_minutes < 1:
+            raise ValueError("duration_minutes must be >= 1")
+        timer.duration_minutes = duration_minutes
+    if description is not None:
+        timer.description = description or None
+    if location is not None:
+        timer.location = location or None
+
+    new_mins = timer.duration_minutes or 0
+    # Rebalance observations if any key field changed
+    if (timer.date != old_date) or (timer.category_id != old_cat) or (new_mins != old_mins):
+        if old_mins > 0:
+            await subtract_observation(
+                session_id=timer.session_id,
+                category_id=old_cat,
+                date=old_date,
+                minutes=old_mins,
+                db=db,
+            )
+        if new_mins > 0:
+            await upsert_observation(
+                session_id=timer.session_id,
+                category_id=timer.category_id,
+                date=timer.date,
+                minutes=new_mins,
+                source="timer",
+                db=db,
+            )
+
+    timer.updated_at = _now_iso()
     await db.flush()
     return timer
 

@@ -1,6 +1,8 @@
 <script lang="ts">
 	import type { CategoryResponse } from '$lib/api/client';
 	import { api } from '$lib/api/client';
+	import LateNightDatePrompt from './LateNightDatePrompt.svelte';
+	import { formatLocalYMD, isLateNight, lateNightDateOptions } from '$lib/utils/lateNight';
 
 	let {
 		categories,
@@ -11,7 +13,11 @@
 	} = $props();
 
 	let categoryId = $state<number | null>(null);
-	let date = $state(new Date().toISOString().split('T')[0]);
+	// In the late-night window default to "yesterday" so the prompt's pre-selected
+	// option matches the user's likely intent. Outside the window, today.
+	let date = $state(
+		isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date())
+	);
 	let hours = $state(0);
 	let minutes = $state(0);
 	let description = $state('');
@@ -52,6 +58,8 @@
 	{#if error}
 		<div class="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{error}</div>
 	{/if}
+
+	<LateNightDatePrompt bind:value={date} />
 
 	<div class="grid grid-cols-2 gap-4">
 		<div>

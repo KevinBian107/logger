@@ -47,8 +47,13 @@ export async function resumeTimer(id: number) {
 	return timer;
 }
 
-export async function stopTimer(id: number, description?: string, location?: string) {
-	const timer = await api.stopTimer(id, description, location);
+export async function stopTimer(
+	id: number,
+	description?: string,
+	location?: string,
+	overrideDate?: string | null,
+) {
+	const timer = await api.stopTimer(id, description, location, overrideDate || undefined);
 	await loadActiveTimers();
 	return timer;
 }

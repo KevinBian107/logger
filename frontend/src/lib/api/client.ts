@@ -527,10 +527,25 @@ export const api = {
 		request<TimerEntryResponse>(`/timers/${id}/pause`, { method: 'POST' }),
 	resumeTimer: (id: number) =>
 		request<TimerEntryResponse>(`/timers/${id}/resume`, { method: 'POST' }),
-	stopTimer: (id: number, description?: string, location?: string) =>
+	stopTimer: (id: number, description?: string, location?: string, overrideDate?: string) =>
 		request<TimerEntryResponse>(`/timers/${id}/stop`, {
 			method: 'POST',
-			body: JSON.stringify({ description: description || null, location: location || null })
+			body: JSON.stringify({
+				description: description || null,
+				location: location || null,
+				override_date: overrideDate || null,
+			})
+		}),
+	updateTimer: (id: number, data: {
+		category_id?: number;
+		date?: string;
+		duration_minutes?: number;
+		description?: string | null;
+		location?: string | null;
+	}) =>
+		request<TimerEntryResponse>(`/timers/${id}`, {
+			method: 'PUT',
+			body: JSON.stringify(data),
 		}),
 	discardTimer: (id: number) =>
 		request<Record<string, unknown>>(`/timers/${id}`, { method: 'DELETE' }),
@@ -554,6 +569,17 @@ export const api = {
 		const qs = params.toString();
 		return request<ManualEntryResponse[]>(`/manual-entries${qs ? `?${qs}` : ''}`);
 	},
+	updateManualEntry: (id: number, data: {
+		category_id?: number;
+		date?: string;
+		duration_minutes?: number;
+		description?: string | null;
+		location?: string | null;
+	}) =>
+		request<ManualEntryResponse>(`/manual-entries/${id}`, {
+			method: 'PUT',
+			body: JSON.stringify(data),
+		}),
 	deleteManualEntry: (id: number) =>
 		request<Record<string, unknown>>(`/manual-entries/${id}`, { method: 'DELETE' }),
 

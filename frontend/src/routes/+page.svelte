@@ -14,6 +14,10 @@
 	import WebsiteBanner from '$lib/components/dashboard/WebsiteBanner.svelte';
 	import StopDialog from '$lib/components/timer/StopDialog.svelte';
 	import TodayLog from '$lib/components/timer/TodayLog.svelte';
+	import EditEntryModal from '$lib/components/timer/EditEntryModal.svelte';
+	import DatePicker from '$lib/components/dashboard/DatePicker.svelte';
+	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import type { ManualEntryResponse } from '$lib/api/client';
 
 	const todayLabel = new Date().toLocaleDateString(undefined, {
 		weekday: 'long',
@@ -26,9 +30,12 @@
 	const ICON_LIST = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/></svg>`;
 	const ICON_FLAME = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2c1 4 5 6 5 11a5 5 0 11-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-4-1-6 1-10z"/></svg>`;
 
-	// Use local date, not UTC
-	const now = new Date();
-	const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+	// `today` is captured once on mount; `selectedDate` is what the user is viewing
+	// (today by default, or any past day picked via the calendar). The two are
+	// compared to render different copy and disable today-only affordances.
+	const today = formatLocalYMD(new Date());
+	let selectedDate = $state<string>(today);
+	const viewingToday = $derived(selectedDate === today);
 
 	let dailyActivity = $state<DailyActivityResponse | null>(null);
 	let streak = $state<StreakResponse>({ current: 0, longest: 0 });
@@ -36,6 +43,8 @@
 	let quickCategoryId = $state<number | null>(null);
 	let startingQuick = $state(false);
 	let stoppingTimer = $state<TimerEntryResponse | null>(null);
+	let editingTimer = $state<TimerEntryResponse | null>(null);
+	let editingManual = $state<ManualEntryResponse | null>(null);
 
 	function getGreeting(): string {
 		const h = new Date().getHours();
@@ -56,7 +65,7 @@
 		await loadActiveSession();
 		try {
 			const [activity, streakData] = await Promise.all([
-				api.getDailyActivity(today),
+				api.getDailyActivity(selectedDate),
 				api.getStreak()
 			]);
 			dailyActivity = activity;
@@ -70,6 +79,14 @@
 			} catch { /* */ }
 		}
 	}
+
+	// Reload whenever the user picks a different date in the calendar.
+	$effect(() => {
+		selectedDate;
+		if (dailyActivity !== null) {
+			loadDashboard();
+		}
+	});
 
 	async function handleQuickStart() {
 		if (!quickCategoryId) return;
@@ -94,9 +111,9 @@
 		if (timer) stoppingTimer = timer;
 	}
 
-	async function handleStopSave(id: number, description: string, location: string) {
+	async function handleStopSave(id: number, description: string, location: string, overrideDate: string | null) {
 		try {
-			await stopTimer(id, description, location);
+			await stopTimer(id, description, location, overrideDate);
 			stoppingTimer = null;
 			await loadDashboard();
 		} catch (e: unknown) { console.error(e); }
@@ -114,6 +131,28 @@
 			await api.discardTimer(id);
 			await loadDashboard();
 		} catch (e: unknown) { console.error(e); }
+	}
+
+	function handleEditTimer(id: number) {
+		const t = (dailyActivity?.timer_entries || []).find(x => x.id === id);
+		if (t) editingTimer = t;
+	}
+
+	function handleEditManual(id: number) {
+		const m = (dailyActivity?.manual_entries || []).find(x => x.id === id);
+		if (m) editingManual = m;
+	}
+
+	async function handleEditSaved() {
+		editingTimer = null;
+		editingManual = null;
+		await loadDashboard();
+	}
+
+	function handleEditDeleted() {
+		editingTimer = null;
+		editingManual = null;
+		loadDashboard();
 	}
 
 	async function handleDiscard(id: number) {
@@ -144,46 +183,59 @@
 <div class="space-y-6">
 	<WebsiteBanner />
 
-	<!-- Hero: greeting + date + active-session pill -->
+	<!-- Hero: greeting + date + date picker + active-session pill -->
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
 			<h1 class="text-3xl font-bold tracking-tight">{getGreeting()}</h1>
 			<p class="mt-1 text-sm text-muted-foreground">{todayLabel}</p>
 		</div>
-		{#if $activeSession}
-			<a
-				href="/data"
-				class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-sm transition-colors hover:border-primary/40 hover:bg-card/80"
-			>
-				<span class="relative flex h-2 w-2">
-					<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-50"></span>
-					<span class="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
-				</span>
-				<span class="font-medium">{$activeSession.label}</span>
-				<span class="text-muted-foreground">· active</span>
-			</a>
-		{:else}
-			<a
-				href="/data"
-				class="inline-flex items-center gap-2 rounded-full border border-dashed border-border px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
-			>
-				No active session — set one up
-			</a>
-		{/if}
+		<div class="flex flex-wrap items-center gap-2">
+			<DatePicker bind:value={selectedDate} maxDate={today} />
+			{#if !viewingToday}
+				<button
+					onclick={() => (selectedDate = today)}
+					class="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+					title="Jump back to today"
+				>
+					<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l-7 7 7 7M2 12h20"/></svg>
+					Back to today
+				</button>
+			{/if}
+			{#if $activeSession}
+				<a
+					href="/data"
+					class="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3.5 py-1.5 text-sm transition-colors hover:border-primary/40 hover:bg-card/80"
+				>
+					<span class="relative flex h-2 w-2">
+						<span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-50"></span>
+						<span class="relative inline-flex h-2 w-2 rounded-full bg-green-500"></span>
+					</span>
+					<span class="font-medium">{$activeSession.label}</span>
+					<span class="text-muted-foreground">· active</span>
+				</a>
+			{:else}
+				<a
+					href="/data"
+					class="inline-flex items-center gap-2 rounded-full border border-dashed border-border px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+				>
+					No active session — set one up
+				</a>
+			{/if}
+		</div>
 	</div>
 
 	{#if $activeSession}
-		<!-- Stat cards -->
+		<!-- Stat cards. Labels switch from "Today's…" to the picked day's date when off-today. -->
 		<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 			<StatCard
-				label="Today's Total"
+				label={viewingToday ? "Today's Total" : `${shortDateLabel(selectedDate)} Total`}
 				value={formatHoursMinutes(dailyActivity?.total_minutes ?? 0)}
-				sublabel={entryCount === 0 ? 'Nothing logged yet' : undefined}
+				sublabel={entryCount === 0 ? (viewingToday ? 'Nothing logged yet' : 'Nothing on this day') : undefined}
 				accent={(dailyActivity?.total_minutes ?? 0) > 0}
 				icon={ICON_CLOCK}
 			/>
 			<StatCard
-				label="Entries Today"
+				label={viewingToday ? 'Entries Today' : 'Entries'}
 				value={String(entryCount)}
 				sublabel={entryCount === 1 ? 'entry' : 'entries'}
 				icon={ICON_LIST}
@@ -235,7 +287,7 @@
 				{#if dailyActivity.observations.length > 0}
 					<section>
 						<div class="mb-3 flex items-baseline justify-between">
-							<h2 class="text-lg font-semibold">Today's Breakdown</h2>
+							<h2 class="text-lg font-semibold">{viewingToday ? "Today's Breakdown" : `${shortDateLabel(selectedDate)} · Breakdown`}</h2>
 							<span class="text-xs text-muted-foreground">{formatHoursMinutes(dailyActivity.total_minutes)} across {dailyActivity.observations.length} categor{dailyActivity.observations.length === 1 ? 'y' : 'ies'}</span>
 						</div>
 						<div class="flex h-7 overflow-hidden rounded-full bg-muted shadow-inner">
@@ -261,7 +313,7 @@
 
 				<section>
 					<div class="mb-3 flex items-baseline justify-between">
-						<h2 class="text-lg font-semibold">Today's Entries</h2>
+						<h2 class="text-lg font-semibold">{viewingToday ? "Today's Entries" : `${shortDateLabel(selectedDate)} · Entries`}</h2>
 						{#if entryCount > 0}
 							<span class="text-xs text-muted-foreground">{entryCount} entr{entryCount === 1 ? 'y' : 'ies'}</span>
 						{/if}
@@ -278,6 +330,8 @@
 							observations={dailyActivity.observations}
 							onDeleteManual={handleDeleteManual}
 							onDeleteTimer={handleDeleteTimer}
+							onEditTimer={handleEditTimer}
+							onEditManual={handleEditManual}
 						/>
 					{/if}
 				</section>
@@ -314,5 +368,16 @@
 		onSave={handleStopSave}
 		onDiscard={handleDiscard}
 		onCancel={() => stoppingTimer = null}
+	/>
+{/if}
+
+{#if (editingTimer || editingManual) && $activeSession}
+	<EditEntryModal
+		timerEntry={editingTimer}
+		manualEntry={editingManual}
+		sessionId={$activeSession.id}
+		onSaved={handleEditSaved}
+		onDeleted={handleEditDeleted}
+		onCancel={() => { editingTimer = null; editingManual = null; }}
 	/>
 {/if}

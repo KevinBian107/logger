@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.database import get_db
 from logger.models import Session, ManualEntry, Category
-from logger.schemas import ManualEntryCreate, ManualEntryResponse
+from logger.schemas import ManualEntryCreate, ManualEntryResponse, ManualEntryUpdate
 from logger.services import manual_entry_service
 
 router = APIRouter(prefix="/manual-entries", tags=["manual-entries"])
@@ -71,6 +71,26 @@ async def list_manual_entries(
     result = await db.execute(query)
     entries = result.scalars().all()
     return [await _entry_response(e, db) for e in entries]
+
+
+@router.put("/{entry_id}", response_model=ManualEntryResponse)
+async def update_manual_entry(
+    entry_id: int, data: ManualEntryUpdate, db: AsyncSession = Depends(get_db)
+):
+    try:
+        entry = await manual_entry_service.update_manual_entry(
+            entry_id,
+            db,
+            category_id=data.category_id,
+            date=data.date,
+            duration_minutes=data.duration_minutes,
+            description=data.description,
+            location=data.location,
+        )
+        await db.commit()
+        return await _entry_response(entry, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete("/{entry_id}")
