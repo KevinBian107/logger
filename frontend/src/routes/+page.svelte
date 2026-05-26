@@ -12,6 +12,7 @@
 	import StatCard from '$lib/components/dashboard/StatCard.svelte';
 	import ActiveTimers from '$lib/components/dashboard/ActiveTimers.svelte';
 	import WebsiteBanner from '$lib/components/dashboard/WebsiteBanner.svelte';
+	import TodayTimeline from '$lib/components/dashboard/TodayTimeline.svelte';
 	import StopDialog from '$lib/components/timer/StopDialog.svelte';
 	import TodayLog from '$lib/components/timer/TodayLog.svelte';
 	import EditEntryModal from '$lib/components/timer/EditEntryModal.svelte';
@@ -284,6 +285,16 @@
 		<!-- Today's log -->
 		{#if dailyActivity}
 			<div class="space-y-5">
+				<!-- Interactive timeline (only meaningful when viewing today;
+				     past-day views fall back to the static breakdown bar below) -->
+				{#if viewingToday}
+					<TodayTimeline
+						timerEntries={dailyActivity.timer_entries}
+						manualEntries={dailyActivity.manual_entries}
+						hasActiveTimer={$activeTimers.length > 0}
+					/>
+				{/if}
+
 				{#if dailyActivity.observations.length > 0}
 					<section>
 						<div class="mb-3 flex items-baseline justify-between">
