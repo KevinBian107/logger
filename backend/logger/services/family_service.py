@@ -55,6 +55,7 @@ DEFAULT_SEED_FAMILIES: list[_SeedFamily] = [
     _SeedFamily("rplh",          "RPLH",              "research", None,       exact_patterns=["rplh"]),
     _SeedFamily("data science",  "Data Science",      "research", None,       exact_patterns=["data science"]),
     _SeedFamily("fd",            "Future Directions", "research", None,       exact_patterns=["fd"]),
+    _SeedFamily("enigmorphic",   "Enigmorphic",       "research", "#06B6D4",  exact_patterns=["enigmorphic"]),
     # A specific course pinned by exact match (precedence over the "cse" dept rule)
     _SeedFamily("cse 257",       "CSE 257",           "course",   "#6366F1", exact_patterns=["cse 257"]),
     # Department prefixes (course families)
@@ -70,6 +71,48 @@ DEFAULT_SEED_FAMILIES: list[_SeedFamily] = [
     _SeedFamily("doc",  "DOC",  "course", "#78716C", prefix_patterns=["doc"]),
     _SeedFamily("hild", "HILD", "course", "#78716C", prefix_patterns=["hild"]),
 ]
+
+
+async def link_orphans_to_seed_families(db: AsyncSession) -> dict:
+    """Find categories with family_id IS NULL whose display name matches an
+    exact_pattern of any seed family, and link them.
+
+    Use case: when a new seed family is added (e.g. Enigmorphic), any existing
+    orphan categories with that name should be retroactively linked to the new
+    family. Without this, only future imports would benefit from the seed.
+
+    Idempotent: only touches categories where family_id is currently NULL.
+    """
+    from logger.models import Category  # avoid circular import at module level
+
+    # Build pattern → family_id from the rules in the DB (rules already point
+    # at the right families post-seed; using the DB as source of truth here
+    # rather than the seed list keeps this in sync with any user-added rules too).
+    rules_result = await db.execute(
+        select(FamilyMatchRule).where(FamilyMatchRule.match_type == "exact")
+    )
+    pattern_to_family: dict[str, int] = {}
+    for rule in rules_result.scalars().all():
+        pattern_to_family[rule.pattern] = rule.family_id
+
+    if not pattern_to_family:
+        return {"linked": 0}
+
+    orphans_result = await db.execute(
+        select(Category).where(Category.family_id.is_(None))
+    )
+    orphans = orphans_result.scalars().all()
+
+    linked = 0
+    for cat in orphans:
+        display = (cat.display_name or cat.name or "").strip().lower()
+        if display in pattern_to_family:
+            cat.family_id = pattern_to_family[display]
+            linked += 1
+
+    if linked:
+        await db.commit()
+    return {"linked": linked}
 
 
 async def seed_default_families_and_rules(db: AsyncSession) -> dict:

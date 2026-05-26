@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.database import get_db
 from logger.models import (
-    AIDescription, CategoryFamily, Category, Session, TextEntry, GitHubRepoLink,
+    AIDescription, CategoryFamily, CategoryGroup, Category, Session, TextEntry, GitHubRepoLink,
 )
 from logger.schemas import (
     ProjectSessionEntry,
@@ -58,11 +58,15 @@ async def get_timeline(db: AsyncSession = Depends(get_db)):
     family_ids = {r["family_id"] for r in rows}
     family_types: dict[int, str | None] = {}
     if family_ids:
+        # Resolve each family to its GROUP (research / courses / personal / training)
+        # via the modern category_groups join. `family_type` is the legacy column
+        # and was inconsistently set on some rows — group_id is the source of truth.
         ft_result = await db.execute(
-            select(CategoryFamily.id, CategoryFamily.family_type)
+            select(CategoryFamily.id, CategoryGroup.name)
+            .join(CategoryGroup, CategoryFamily.group_id == CategoryGroup.id, isouter=True)
             .where(CategoryFamily.id.in_(family_ids))
         )
-        family_types = {r.id: r.family_type for r in ft_result}
+        family_types = {r[0]: r[1] for r in ft_result}
 
     desc_result = await db.execute(select(AIDescription))
     descriptions: dict[tuple[int, int], str] = {
@@ -230,11 +234,13 @@ async def get_project_groups(db: AsyncSession = Depends(get_db)):
     family_ids = {r["family_id"] for r in rows}
     family_types: dict[int, str] = {}
     if family_ids:
+        # See note above — use category_groups join, not the legacy family_type column.
         ft_result = await db.execute(
-            select(CategoryFamily.id, CategoryFamily.family_type)
+            select(CategoryFamily.id, CategoryGroup.name)
+            .join(CategoryGroup, CategoryFamily.group_id == CategoryGroup.id, isouter=True)
             .where(CategoryFamily.id.in_(family_ids))
         )
-        family_types = {r.id: (r.family_type or "other") for r in ft_result}
+        family_types = {r[0]: (r[1] or "other") for r in ft_result}
 
     # Aggregate by group type
     group_stats: dict[str, dict] = {}
@@ -280,11 +286,13 @@ async def get_group_detail(
     family_ids = {r["family_id"] for r in rows}
     family_types: dict[int, str] = {}
     if family_ids:
+        # See note above — use category_groups join, not the legacy family_type column.
         ft_result = await db.execute(
-            select(CategoryFamily.id, CategoryFamily.family_type)
+            select(CategoryFamily.id, CategoryGroup.name)
+            .join(CategoryGroup, CategoryFamily.group_id == CategoryGroup.id, isouter=True)
             .where(CategoryFamily.id.in_(family_ids))
         )
-        family_types = {r.id: (r.family_type or "other") for r in ft_result}
+        family_types = {r[0]: (r[1] or "other") for r in ft_result}
 
     filtered_rows = [
         r for r in rows if family_types.get(r["family_id"]) == group_type
@@ -395,11 +403,15 @@ async def get_research_families(db: AsyncSession = Depends(get_db)):
     family_ids = {r["family_id"] for r in rows}
     family_types: dict[int, str | None] = {}
     if family_ids:
+        # Resolve each family to its GROUP (research / courses / personal / training)
+        # via the modern category_groups join. `family_type` is the legacy column
+        # and was inconsistently set on some rows — group_id is the source of truth.
         ft_result = await db.execute(
-            select(CategoryFamily.id, CategoryFamily.family_type)
+            select(CategoryFamily.id, CategoryGroup.name)
+            .join(CategoryGroup, CategoryFamily.group_id == CategoryGroup.id, isouter=True)
             .where(CategoryFamily.id.in_(family_ids))
         )
-        family_types = {r.id: r.family_type for r in ft_result}
+        family_types = {r[0]: r[1] for r in ft_result}
 
     # Get linked repos
     link_result = await db.execute(select(GitHubRepoLink))

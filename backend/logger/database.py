@@ -88,7 +88,7 @@ async def init_db() -> None:
     # their match rules. Re-running the seed afterwards re-creates any rules
     # that the new seed config points at the salk family (or any other surviving
     # family) so detection works on the same boot, not the next one.
-    from logger.services.family_service import seed_default_families_and_rules
+    from logger.services.family_service import seed_default_families_and_rules, link_orphans_to_seed_families
     from logger.services.group_service import seed_default_groups, migrate_family_types_to_groups
     from logger.models import Setting
     from sqlalchemy import select
@@ -97,6 +97,9 @@ async def init_db() -> None:
         await seed_default_families_and_rules(session)
         await migrate_family_types_to_groups(session)
         await seed_default_families_and_rules(session)
+        # Retroactively link orphan categories to any newly-seeded families
+        # (e.g. Enigmorphic added later → linked to its Research family here).
+        await link_orphans_to_seed_families(session)
         # Seed default timezone setting (idempotent — skipped if already set).
         existing_tz = await session.execute(select(Setting).where(Setting.key == "timezone"))
         if not existing_tz.scalar_one_or_none():

@@ -16,12 +16,21 @@ const API_BASE =
 	ENV_BASE ||
 	(browser && window.location.port === '5173' ? 'http://localhost:8000/api' : '/api');
 
+export interface ToolActivity {
+	name: string;
+	input: Record<string, unknown>;
+	summary?: string;       // populated when the tool_result arrives
+	pending: boolean;       // true while waiting for tool_result
+}
+
 export const messages = writable<ChatMessageResponse[]>([]);
 export const pendingApproval = writable<ChatApprovalResponse | null>(null);
 export const isLoading = writable(false);
 export const isStreaming = writable(false);
 export const chatStatus = writable<ChatStatusResponse | null>(null);
 export const chatError = writable<string | null>(null);
+// Tool calls Claude makes during the current turn, in order. Cleared at end of stream.
+export const currentToolActivity = writable<ToolActivity[]>([]);
 
 export async function loadChatStatus() {
 	if (!browser) return;
@@ -67,6 +76,7 @@ export async function approveQuery(approvalId: string) {
 	chatError.set(null);
 	isStreaming.set(true);
 	pendingApproval.set(null);
+	currentToolActivity.set([]);
 
 	// Add a placeholder streaming message
 	const streamingMsg: ChatMessageResponse = {
@@ -122,6 +132,22 @@ export async function approveQuery(approvalId: string) {
 							}
 							return updated;
 						});
+					} else if (event.type === 'tool_call') {
+						currentToolActivity.update((arr) => [
+							...arr,
+							{ name: event.name, input: event.input || {}, pending: true },
+						]);
+					} else if (event.type === 'tool_result') {
+						currentToolActivity.update((arr) => {
+							// Match to the most-recent pending call with this name
+							for (let i = arr.length - 1; i >= 0; i--) {
+								if (arr[i].pending && arr[i].name === event.name) {
+									arr[i] = { ...arr[i], pending: false, summary: event.summary };
+									break;
+								}
+							}
+							return [...arr];
+						});
 					} else if (event.type === 'done') {
 						messages.update((msgs) => {
 							const updated = [...msgs];
@@ -143,6 +169,8 @@ export async function approveQuery(approvalId: string) {
 		chatError.set(e instanceof Error ? e.message : 'Streaming failed');
 	} finally {
 		isStreaming.set(false);
+		// Clear after a short delay so the user sees the final tool list before it vanishes
+		setTimeout(() => currentToolActivity.set([]), 4000);
 	}
 }
 

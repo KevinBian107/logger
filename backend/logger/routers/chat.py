@@ -19,8 +19,7 @@ from logger.schemas import (
     ApiKeySaveRequest,
 )
 from logger.services.api_key_service import save_api_key, get_api_key, has_api_key
-from logger.services.chat_query_service import parse_query
-from logger.services.chat_context_service import build_context
+from logger.services.chat_tools_service import TOOLS, execute_tool
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -35,17 +34,37 @@ AVAILABLE_MODELS = [
 
 DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
-SYSTEM_PROMPT = """You are an AI assistant helping a user understand their productivity data. \
-You have been provided with their logged study/work time data.
+SYSTEM_PROMPT = """You are an AI assistant for log(ger), a personal time-tracking app. \
+You answer questions about the user's logged study/work time by calling tools \
+to query their local SQLite database.
 
-Rules:
-- Only reference the provided data. Do not invent or assume data that isn't shown.
-- Be precise with numbers. Show both hours and minutes (e.g., "12h 30m" or "750 minutes").
-- Use markdown formatting for clarity: headers, bold for emphasis, lists for breakdowns.
-- When data is insufficient to answer a question, say so clearly.
-- Be concise but thorough. Highlight interesting patterns or trends if they exist.
-- When comparing periods, show the numbers side by side.
+DATA MODEL — always reason and report along this hierarchy:
+  - Group (top-level): Research, Training, Personal, Courses
+  - Family (mid): a project that spans sessions — e.g., "Salk Research", "MPI Research",
+    "Enigmorphic", "COGS" (department family), "Training", "Personal Projects (PP)"
+  - Category (leaf): a per-session instance of a family — e.g., "Salk" in Spring 2026
+  - Sessions are academic-quarter-sized periods (e.g. "Spring 2026"); one is active at a time
+  - Entries are timer or manual records logging minutes against a category
+
+HOW TO ANSWER:
+1. Use tools to fetch only what you need. Don't ask the user — query the database directly.
+2. Prefer Group → Family → Category framing. For "how much research?" call
+   get_group_breakdown; for "how much Salk?" call get_family_breakdown.
+3. Verify numbers via tools. NEVER make up totals or session names — if you didn't fetch it,
+   don't say it.
+4. When listing time, always include both hours and minutes (e.g. "12h 30m" / "750 min").
+5. Refer to projects by family display name (e.g. "Salk Research" not "salk").
+6. When the question is open-ended ("how was my year"), start with list_sessions, then pick a
+   couple of relevant get_group_breakdown / get_family_breakdown calls.
+7. For "when did I do X" or text-content questions, use search_text_entries.
+8. If a tool returns an error or empty result, say so plainly. Don't pretend data exists.
+
+Use markdown for structure: headers, bold for key numbers, lists for breakdowns.
+Be concise but thorough. Highlight interesting patterns if they're real.
 """
+
+# Cap the agentic loop so a misbehaving Claude can't infinite-loop on tools.
+MAX_TOOL_ITERATIONS = 8
 
 
 async def _get_selected_model(db: AsyncSession) -> str:
@@ -81,60 +100,101 @@ async def chat_history(db: AsyncSession = Depends(get_db)):
 
 @router.post("/query", response_model=ChatApprovalResponse)
 async def chat_query(req: ChatQueryRequest, db: AsyncSession = Depends(get_db)):
-    """Parse query, build context, return approval card data."""
+    """Stage a pending query. With tool use, there's no pre-built context —
+    Claude will fetch what it needs via tools when the user approves.
+    The approval card now just confirms the user wants to spend an API call.
+    """
     if not await has_api_key(db):
         raise HTTPException(status_code=400, detail="API key not configured")
 
-    parsed = await parse_query(req.message, db)
-    context = await build_context(parsed, db)
-
     approval_id = str(uuid.uuid4())
 
-    # Store user message in DB
+    # Persist the user message
     user_msg = ChatMessage(role="user", content=req.message)
     db.add(user_msg)
     await db.commit()
 
-    # Store pending approval in memory
-    _pending_approvals[approval_id] = {
-        "user_message": req.message,
-        "context_markdown": context["context_markdown"],
-        "parsed_query": parsed,
-        "context_info": context,
-    }
+    _pending_approvals[approval_id] = {"user_message": req.message}
 
-    # Truncate context preview for the approval card
-    preview = context["context_markdown"]
-    if len(preview) > 2000:
-        preview = preview[:2000] + "\n\n... [truncated]"
+    # The "preview" tells the user what Claude can do here.
+    preview = (
+        "Claude will query your database directly using read-only tools "
+        f"({len(TOOLS)} available) and respond based on what it finds. "
+        "Tool calls happen automatically; you'll see each one as it runs."
+    )
+    tool_names = [t["name"] for t in TOOLS]
 
     return ChatApprovalResponse(
         approval_id=approval_id,
         user_message=req.message,
         context_info=ChatContextInfo(
-            summary=context["summary"],
-            sessions_included=context["sessions_included"],
-            categories_included=context["categories_included"],
-            date_range=context["date_range"],
-            data_points=context["data_points"],
+            summary=f"Tool-use mode · {len(TOOLS)} read-only tools available",
+            sessions_included=[],
+            categories_included=tool_names,
+            date_range=[None, None],
+            data_points=0,
             context_preview=preview,
         ),
     )
 
 
+def _sse(payload: dict) -> str:
+    return f"data: {json.dumps(payload)}\n\n"
+
+
+def _summarize_tool_result(name: str, result: dict) -> str:
+    """One-line summary shown in the chat UI as Claude's progress."""
+    if "error" in result:
+        return result["error"]
+    if name == "list_sessions":
+        return f"found {result.get('count', 0)} sessions"
+    if name == "list_families":
+        return f"found {result.get('count', 0)} families"
+    if name == "get_family_breakdown":
+        fam = result.get("family", {}).get("name", "?")
+        mins = result.get("total_minutes", 0)
+        return f"{fam}: {mins // 60}h {mins % 60}m total"
+    if name == "get_group_breakdown":
+        grp = result.get("group", {}).get("name", "?")
+        mins = result.get("total_minutes", 0)
+        return f"{grp}: {mins // 60}h {mins % 60}m across {len(result.get('by_family', []))} families"
+    if name == "get_session_breakdown":
+        sess = result.get("session", {}).get("label", "?")
+        return f"{sess}: {len(result.get('items', []))} {result.get('by', 'family')}s"
+    if name == "get_daily_breakdown":
+        d = result.get("date", "?")
+        mins = result.get("total_minutes", 0)
+        return f"{d}: {mins // 60}h {mins % 60}m"
+    if name == "search_text_entries":
+        return f"matched {result.get('count', 0)} entries"
+    return "ok"
+
+
 @router.post("/approve")
 async def chat_approve(req: ChatApproveRequest):
-    """Retrieve pending approval, stream Claude's response via SSE."""
+    """Run the multi-turn tool-use loop and stream events back over SSE.
+
+    Events:
+      tool_call   {name, input}            — Claude is about to call a tool
+      tool_result {name, summary}          — Tool returned (just a short summary,
+                                              not the full payload, to keep
+                                              the SSE channel small)
+      token       {content}                — Final response text (one big chunk
+                                              in this version; can be split later)
+      done        {message_id}             — Conversation turn complete
+      error       {content}                — Aborted
+    """
     pending = _pending_approvals.pop(req.approval_id, None)
     if not pending:
         raise HTTPException(status_code=404, detail="Approval not found or expired")
 
+    user_message = pending["user_message"]
+
     async def generate() -> AsyncGenerator[str, None]:
-        # Open a fresh DB session for the streaming generator
         async with async_session() as db:
             api_key = await get_api_key(db)
             if not api_key:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'API key not configured'})}\n\n"
+                yield _sse({"type": "error", "content": "API key not configured"})
                 return
 
             model = await _get_selected_model(db)
@@ -143,39 +203,86 @@ async def chat_approve(req: ChatApproveRequest):
                 import anthropic
                 client = anthropic.AsyncAnthropic(api_key=api_key)
 
-                user_content = (
-                    f"User question: {pending['user_message']}\n\n"
-                    f"--- DATA ---\n{pending['context_markdown']}"
-                )
+                # Conversation history accumulates as we loop.
+                messages: list[dict] = [{"role": "user", "content": user_message}]
+                final_text = ""
 
-                full_response = ""
-                async with client.messages.stream(
-                    model=model,
-                    max_tokens=2048,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": user_content}],
-                ) as stream:
-                    async for text in stream.text_stream:
-                        full_response += text
-                        yield f"data: {json.dumps({'type': 'token', 'content': text})}\n\n"
+                for iteration in range(MAX_TOOL_ITERATIONS):
+                    resp = await client.messages.create(
+                        model=model,
+                        max_tokens=2048,
+                        system=SYSTEM_PROMPT,
+                        tools=TOOLS,
+                        messages=messages,
+                    )
 
-                # Persist assistant message
+                    if resp.stop_reason == "tool_use":
+                        # Append Claude's turn (text + tool_use blocks) to history
+                        messages.append({"role": "assistant", "content": resp.content})
+
+                        # Execute every tool block in this turn, build tool_result blocks
+                        tool_result_blocks = []
+                        for block in resp.content:
+                            if getattr(block, "type", None) != "tool_use":
+                                continue
+                            tool_name = block.name
+                            tool_input = block.input or {}
+                            yield _sse({"type": "tool_call", "name": tool_name, "input": tool_input})
+
+                            result = await execute_tool(tool_name, tool_input, db)
+                            yield _sse({
+                                "type": "tool_result",
+                                "name": tool_name,
+                                "summary": _summarize_tool_result(tool_name, result),
+                            })
+
+                            tool_result_blocks.append({
+                                "type": "tool_result",
+                                "tool_use_id": block.id,
+                                "content": json.dumps(result),
+                            })
+
+                        messages.append({"role": "user", "content": tool_result_blocks})
+                        continue  # Loop to get Claude's next response
+
+                    # end_turn (or anything non-tool_use) → final response is the text blocks
+                    final_text = "".join(
+                        b.text for b in resp.content if getattr(b, "type", None) == "text"
+                    ).strip()
+                    break
+                else:
+                    # Hit iteration cap
+                    yield _sse({
+                        "type": "error",
+                        "content": f"Stopped after {MAX_TOOL_ITERATIONS} tool calls without a final answer.",
+                    })
+                    return
+
+                if not final_text:
+                    yield _sse({
+                        "type": "error",
+                        "content": "Claude returned no text response.",
+                    })
+                    return
+
+                # Stream the final text (single chunk for V1; can be split later).
+                yield _sse({"type": "token", "content": final_text})
+
                 assistant_msg = ChatMessage(
                     role="assistant",
-                    content=full_response,
-                    metadata_=json.dumps({"model": model}),
+                    content=final_text,
+                    metadata_=json.dumps({"model": model, "tool_iterations": iteration + 1}),
                 )
                 db.add(assistant_msg)
                 await db.commit()
-
-                yield f"data: {json.dumps({'type': 'done', 'message_id': assistant_msg.id})}\n\n"
+                yield _sse({"type": "done", "message_id": assistant_msg.id})
 
             except anthropic.AuthenticationError:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'Invalid API key. Please check your settings.'})}\n\n"
+                yield _sse({"type": "error", "content": "Invalid API key. Check Settings."})
             except anthropic.RateLimitError:
-                yield f"data: {json.dumps({'type': 'error', 'content': 'Rate limited. Please wait a moment and try again.'})}\n\n"
-            except Exception as e:
-                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+                yield _sse({"type": "error", "content": "Rate limited. Wait a moment and try again."})
+            except Exception as e:  # noqa: BLE001
+                yield _sse({"type": "error", "content": f"{type(e).__name__}: {e}"})
 
     return StreamingResponse(generate(), media_type="text/event-stream")
 

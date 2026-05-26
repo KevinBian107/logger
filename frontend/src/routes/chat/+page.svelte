@@ -10,6 +10,7 @@
 		isStreaming,
 		chatStatus,
 		chatError,
+		currentToolActivity,
 		loadChatStatus,
 		loadChatHistory,
 		sendQuery,
@@ -138,9 +139,37 @@
 					</div>
 				{/if}
 
+				<!-- Live tool-call log: shows each DB query Claude makes for this turn -->
+				{#if $currentToolActivity.length > 0}
+					<div class="mb-3 rounded-lg border border-border bg-muted/40 px-3 py-2.5">
+						<div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+							Querying your data
+						</div>
+						<ul class="space-y-0.5">
+							{#each $currentToolActivity as t}
+								<li class="flex items-center gap-2 text-xs">
+									{#if t.pending}
+										<span class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary animate-pulse"></span>
+									{:else}
+										<svg class="h-3 w-3 shrink-0 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="3">
+											<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+										</svg>
+									{/if}
+									<code class="font-mono text-muted-foreground">{t.name}</code>
+									{#if t.summary}
+										<span class="text-muted-foreground/80 truncate">· {t.summary}</span>
+									{:else if t.pending}
+										<span class="text-muted-foreground/60 italic">running…</span>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+
 				{#if $isStreaming}
 					<div class="flex justify-start mb-1">
-						<span class="text-xs text-muted-foreground animate-pulse">Claude is typing...</span>
+						<span class="text-xs text-muted-foreground animate-pulse">Claude is thinking…</span>
 					</div>
 				{/if}
 			</div>

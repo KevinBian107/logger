@@ -115,6 +115,10 @@
 			filterMonth = s.filterMonth;
 			filterSessionId = s.filterSessionId;
 			filterWeek = s.filterWeek;
+			// SvelteKit calls restore() AFTER onMount, so loadAll() has already
+			// fetched with the default empty filters. Re-issue with the restored
+			// filters so the charts match what the snapshot remembered.
+			fetchFilteredData(s.filters);
 		},
 	};
 </script>
@@ -171,7 +175,7 @@
 		{/if}
 
 		<!-- Daily area chart -->
-		<DailyAreaChart data={dailyData} timeScale={currentScale} />
+		<DailyAreaChart data={dailyData} timeScale={scale} />
 
 		<!-- Two-column: Category bars + Heatmap -->
 		<div class="grid gap-4 lg:grid-cols-2">
