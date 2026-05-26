@@ -31,11 +31,9 @@
 	let error = $state<string | null>(null);
 	let currentFilters = $state<AnalyticsFilters>({});
 	// FilterBar internals are bound from here so the snapshot can preserve them.
-	let scale = $state<'overall' | 'year' | 'month' | 'week'>('overall');
+	let scale = $state<'overall' | 'year' | 'month'>('overall');
 	let filterYear = $state<number | null>(null);
 	let filterMonth = $state<number | null>(null);
-	let filterSessionId = $state<number | null>(null);
-	let filterWeek = $state<number | null>(null);
 
 	async function fetchFilteredData(filters: AnalyticsFilters) {
 		try {
@@ -98,23 +96,17 @@
 			scale,
 			filterYear,
 			filterMonth,
-			filterSessionId,
-			filterWeek,
 		}),
 		restore: (s: {
 			filters: AnalyticsFilters;
-			scale: 'overall' | 'year' | 'month' | 'week';
+			scale: 'overall' | 'year' | 'month';
 			filterYear: number | null;
 			filterMonth: number | null;
-			filterSessionId: number | null;
-			filterWeek: number | null;
 		}) => {
 			currentFilters = s.filters;
 			scale = s.scale;
 			filterYear = s.filterYear;
 			filterMonth = s.filterMonth;
-			filterSessionId = s.filterSessionId;
-			filterWeek = s.filterWeek;
 			// SvelteKit calls restore() AFTER onMount, so loadAll() has already
 			// fetched with the default empty filters. Re-issue with the restored
 			// filters so the charts match what the snapshot remembered.
@@ -136,8 +128,6 @@
 			bind:scale
 			bind:selectedYear={filterYear}
 			bind:selectedMonth={filterMonth}
-			bind:selectedSessionId={filterSessionId}
-			bind:selectedWeek={filterWeek}
 		/>
 	</div>
 

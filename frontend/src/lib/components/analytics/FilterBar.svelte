@@ -1,26 +1,28 @@
 <script lang="ts">
 	import type { SessionResponse, AnalyticsFilters } from '$lib/api/client';
 
-	type Scale = 'overall' | 'year' | 'month' | 'week';
+	type Scale = 'overall' | 'year' | 'month';
 
 	// Bindable state lifted to the parent so it survives in-app tab navigation
 	// (the +page.svelte exposes a snapshot that captures these values).
+	//
+	// Note: 'week' was previously a fourth scale but produced inconsistent results
+	// — older CSV imports lacked a week column so daily_records had week_number=NULL,
+	// and there's no single semantic ("session-relative" vs "ISO calendar week") that
+	// works for all data. Removed in favour of Year/Month/Overall which align cleanly
+	// with the date_range filter the backend already supports.
 	let {
 		sessions,
 		onFilterChange,
 		scale = $bindable<Scale>('overall'),
 		selectedYear = $bindable<number | null>(null),
 		selectedMonth = $bindable<number | null>(null),
-		selectedSessionId = $bindable<number | null>(null),
-		selectedWeek = $bindable<number | null>(null),
 	}: {
 		sessions: SessionResponse[];
 		onFilterChange: (filters: AnalyticsFilters, timeScale: string) => void;
 		scale?: Scale;
 		selectedYear?: number | null;
 		selectedMonth?: number | null;
-		selectedSessionId?: number | null;
-		selectedWeek?: number | null;
 	} = $props();
 
 	const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -32,18 +34,6 @@
 			years.add(s.year);
 		}
 		return [...years].sort((a, b) => b - a);
-	});
-
-	// Derive max week number for the selected session
-	let maxWeeks = $derived.by(() => {
-		if (!selectedSessionId) return 12;
-		const s = sessions.find(s => s.id === selectedSessionId);
-		if (!s || !s.start_date || !s.end_date) return 12;
-		const start = new Date(s.start_date + 'T00:00:00');
-		const end = new Date(s.end_date + 'T00:00:00');
-		const diffMs = end.getTime() - start.getTime();
-		const weeks = Math.ceil(diffMs / (7 * 24 * 60 * 60 * 1000));
-		return Math.max(1, Math.min(weeks, 20));
 	});
 
 	function lastDayOfMonth(year: number, month: number): number {
@@ -64,11 +54,6 @@
 			filters = {
 				from_date: `${selectedYear}-${mm}-01`,
 				to_date: `${selectedYear}-${mm}-${String(lastDay).padStart(2, '0')}`
-			};
-		} else if (scale === 'week' && selectedSessionId !== null && selectedWeek !== null) {
-			filters = {
-				session_ids: [selectedSessionId],
-				week_number: selectedWeek
 			};
 		}
 		// 'overall' sends empty filters
@@ -91,13 +76,6 @@
 			if (selectedMonth === null) {
 				selectedMonth = new Date().getMonth();
 			}
-		} else if (s === 'week') {
-			if (selectedSessionId === null && sessions.length > 0) {
-				selectedSessionId = sessions[sessions.length - 1].id;
-			}
-			if (selectedWeek === null) {
-				selectedWeek = 1;
-			}
 		}
 
 		emitFilters();
@@ -113,22 +91,10 @@
 		emitFilters();
 	}
 
-	function handleSessionChange(e: Event) {
-		selectedSessionId = Number((e.target as HTMLSelectElement).value);
-		selectedWeek = 1;
-		emitFilters();
-	}
-
-	function handleWeekChange(e: Event) {
-		selectedWeek = Number((e.target as HTMLSelectElement).value);
-		emitFilters();
-	}
-
 	const scales: { key: Scale; label: string }[] = [
 		{ key: 'overall', label: 'Overall' },
 		{ key: 'year', label: 'Year' },
 		{ key: 'month', label: 'Month' },
-		{ key: 'week', label: 'Week' },
 	];
 </script>
 
@@ -180,24 +146,4 @@
 		</select>
 	{/if}
 
-	{#if scale === 'week'}
-		<select
-			value={selectedSessionId}
-			onchange={handleSessionChange}
-			class="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground"
-		>
-			{#each sessions as s}
-				<option value={s.id}>{s.label || `${s.season} ${s.year}`}</option>
-			{/each}
-		</select>
-		<select
-			value={selectedWeek}
-			onchange={handleWeekChange}
-			class="rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground"
-		>
-			{#each Array.from({ length: maxWeeks }, (_, i) => i + 1) as w}
-				<option value={w}>Week {w}</option>
-			{/each}
-		</select>
-	{/if}
 </div>
