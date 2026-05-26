@@ -5,14 +5,18 @@
 	import { timezone, normalizeAsUtc } from '$lib/stores/timezone';
 
 	/**
-	 * Today's timeline as a "spike plot": each logged entry is a single vertical
-	 * impulse positioned at its time-of-day, with height = duration_minutes and
-	 * color = family. A cumulative line over one day buries the per-event story;
-	 * spikes show "I spent 45m on X at 2pm, then 20m on Y at 4pm" directly.
+	 * Today's timeline as a Gantt-style box chart. Each completed entry renders
+	 * as a horizontal rectangle from its start time to its end time, color-coded
+	 * by family. Overlapping intervals stack into lanes.
+	 *
+	 * - Timer entries: solid boxes spanning real start_time → end_time
+	 * - Manual entries: dashed-outline boxes — the start time is INFERRED as
+	 *   (created_at − duration_minutes), since manuals only record when they
+	 *   were logged, not when the work happened. Hover label makes this clear.
 	 *
 	 * Uses BOTH:
-	 *   - TIME data: x-position (hour-of-day) + spike height (duration)
-	 *   - TEXT data: description + location revealed on hover
+	 *   - TIME data: x-extent (start → end) and lane layout
+	 *   - TEXT data: description, location, category — revealed on hover
 	 */
 
 	let {
@@ -28,19 +32,25 @@
 	let container = $state<HTMLDivElement | null>(null);
 	let svgEl = $state<SVGSVGElement | null>(null);
 	let stableWidth = $state(720);
-	const HEIGHT = 220;
-	const MARGIN = { top: 16, right: 18, bottom: 28, left: 44 };
+	const MARGIN = { top: 16, right: 18, bottom: 28, left: 18 };
+	const BOX_HEIGHT = 28;
+	const LANE_GAP = 4;
+	const MAX_LANES = 4;
 
 	type DayEvent = {
-		hour: number;            // hours since midnight (e.g., 14.55)
-		iso: string;             // original timestamp for tooltip display
+		startHour: number;       // hours since midnight (e.g., 14.55)
+		endHour: number;
+		startIso: string;        // for tooltip — original start (or inferred)
+		endIso: string;          // for tooltip
 		duration: number;        // minutes
 		category: string;
 		family: string | null;
 		description: string | null;
 		location: string | null;
 		kind: 'timer' | 'manual';
+		inferredStart: boolean;  // true for manual entries
 		color: string;
+		lane: number;            // assigned by stacking pass
 	};
 
 	// Stable family-color palette. Same family display name → same color across
@@ -101,59 +111,107 @@
 		return `${h}h ${m}m`;
 	}
 
-	// Build the chronologically-sorted event list, cumulative minutes derived.
-	const events = $derived.by<DayEvent[]>(() => {
+	// Build raw events with real or inferred start/end times.
+	const rawEvents = $derived.by<DayEvent[]>(() => {
 		const tz = $timezone;
 		const out: DayEvent[] = [];
+
 		for (const t of timerEntries) {
 			if (!t.end_time || !t.duration_minutes) continue;
+			// Timer has both start_time and end_time. Use them directly.
+			const startIso = t.start_time;
+			const endIso = t.end_time;
 			out.push({
-				hour: hourOfDay(t.end_time, tz),
-				iso: t.end_time,
+				startHour: hourOfDay(startIso, tz),
+				endHour: hourOfDay(endIso, tz),
+				startIso,
+				endIso,
 				duration: t.duration_minutes,
 				category: t.category_name || 'Untitled',
 				family: t.category_name,
 				description: t.description,
 				location: t.location,
 				kind: 'timer',
+				inferredStart: false,
 				color: colorFor(t.category_name),
+				lane: 0,
 			});
 		}
 		for (const m of manualEntries) {
-			if (!m.created_at) continue;
+			if (!m.created_at || !m.duration_minutes) continue;
+			// Manual entries don't record when the work happened — only when the
+			// user submitted the form. Approximate: end at created_at, infer
+			// start as created_at - duration. Flagged in the UI as inferred.
+			const endHour = hourOfDay(m.created_at, tz);
+			const startHour = Math.max(0, endHour - m.duration_minutes / 60);
 			out.push({
-				hour: hourOfDay(m.created_at, tz),
-				iso: m.created_at,
+				startHour,
+				endHour,
+				startIso: m.created_at,
+				endIso: m.created_at,
 				duration: m.duration_minutes,
 				category: m.category_name || 'Untitled',
 				family: m.category_name,
 				description: m.description,
 				location: m.location,
 				kind: 'manual',
+				inferredStart: true,
 				color: colorFor(m.category_name),
+				lane: 0,
 			});
 		}
-		return out.sort((a, b) => a.hour - b.hour);
+		return out.sort((a, b) => a.startHour - b.startHour);
 	});
 
-	// Per-event maxima for the y-axis. The dashboard's stat-cards already show
-	// the aggregate total; here we want each spike's height to be readable as
-	// the duration of that one entry, not buried inside a cumulative sum.
+	// Lane assignment so overlapping intervals don't render on top of each other.
+	// Greedy: each event reuses the first lane whose last-end time precedes it,
+	// else opens a new lane. Capped at MAX_LANES; overflow fits into the last.
+	const events = $derived.by<DayEvent[]>(() => {
+		const laneEnds: number[] = []; // lane index → end of last event in that lane
+		const result: DayEvent[] = [];
+		for (const e of rawEvents) {
+			let assigned = -1;
+			for (let i = 0; i < laneEnds.length; i++) {
+				if (laneEnds[i] <= e.startHour + 0.001) {
+					assigned = i;
+					laneEnds[i] = e.endHour;
+					break;
+				}
+			}
+			if (assigned < 0) {
+				if (laneEnds.length < MAX_LANES) {
+					laneEnds.push(e.endHour);
+					assigned = laneEnds.length - 1;
+				} else {
+					// Overflow: drop into the last lane (best-effort visualization).
+					assigned = MAX_LANES - 1;
+					laneEnds[assigned] = Math.max(laneEnds[assigned], e.endHour);
+				}
+			}
+			result.push({ ...e, lane: assigned });
+		}
+		return result;
+	});
+
+	const laneCount = $derived(
+		events.length === 0 ? 1 : Math.max(1, ...events.map((e) => e.lane + 1)),
+	);
 	const totalMinutes = $derived(events.reduce((s, e) => s + e.duration, 0));
-	const maxDuration = $derived(events.length > 0 ? Math.max(...events.map((e) => e.duration)) : 60);
+	const HEIGHT = $derived(
+		MARGIN.top + laneCount * (BOX_HEIGHT + LANE_GAP) - LANE_GAP + MARGIN.bottom,
+	);
 
 	// Now (hour-of-day in the chosen tz). Updates on each render — that's fine
 	// because the dashboard polls timers anyway.
 	const nowHour = $derived(hourOfDay(new Date().toISOString(), $timezone));
 
-	// Domain: earliest hour minus a bit, to max(now, last event) plus a bit
+	// Domain: earliest startHour minus a bit, to max(now, last endHour) plus a bit
 	const xDomain = $derived.by<[number, number]>(() => {
 		if (events.length === 0) {
-			// No events: show 6am → max(noon, now) so the empty axis isn't silly.
 			return [6, Math.max(12, nowHour + 0.5)];
 		}
-		const first = events[0].hour;
-		const last = Math.max(events[events.length - 1].hour, nowHour);
+		const first = Math.min(...events.map((e) => e.startHour));
+		const last = Math.max(nowHour, ...events.map((e) => e.endHour));
 		const pad = Math.max(0.25, (last - first) * 0.05);
 		return [Math.max(0, first - pad), Math.min(24, last + pad)];
 	});
@@ -183,13 +241,10 @@
 	const xScale = $derived(
 		d3.scaleLinear().domain(xDomain).range([MARGIN.left, W - MARGIN.right]),
 	);
-	const yScale = $derived(
-		d3
-			.scaleLinear()
-			// Snap to 30-min increments above the tallest spike, min 60.
-			.domain([0, Math.max(60, Math.ceil(maxDuration / 30) * 30)])
-			.range([HEIGHT - MARGIN.bottom, MARGIN.top]),
-	);
+	// Lane → y position
+	function laneY(lane: number): number {
+		return MARGIN.top + lane * (BOX_HEIGHT + LANE_GAP);
+	}
 
 	// Axis ticks
 	const xTicks = $derived.by(() => {
@@ -212,11 +267,8 @@
 		return `${h - 12}p`;
 	}
 
-	const yTicks = $derived.by(() => {
-		const max = yScale.domain()[0]; // domain is [0, max]
-		// Use d3 to compute up to ~4 ticks
-		return yScale.ticks(4).filter((t) => t > 0);
-	});
+	// No y-axis ticks with Gantt-style boxes — position carries no quantitative
+	// meaning (it's just lane stacking). Time + duration are conveyed by x-extent.
 
 	// ── ResizeObserver ────────────────────────────────────────────────────
 	let resizeObserver: ResizeObserver | null = null;
@@ -271,25 +323,6 @@
 			role="img"
 			aria-label="Timeline of today's entries — each spike is one logged session"
 		>
-			<!-- Y gridlines -->
-			{#each yTicks as t}
-				<line
-					x1={MARGIN.left}
-					x2={W - MARGIN.right}
-					y1={yScale(t)}
-					y2={yScale(t)}
-					stroke="currentColor"
-					stroke-opacity="0.07"
-				/>
-				<text
-					x={MARGIN.left - 8}
-					y={yScale(t)}
-					dy="0.32em"
-					text-anchor="end"
-					class="fill-muted-foreground text-[10px] font-mono"
-				>{t}m</text>
-			{/each}
-
 			<!-- X axis baseline -->
 			<line
 				x1={MARGIN.left}
@@ -336,34 +369,48 @@
 				</circle>
 			{/if}
 
-			<!-- One spike per event: vertical line from baseline up to the event's
-			     duration, capped by a small circle at the top for hover affordance. -->
+			<!-- One box per event: x = start, width = end - start, lane = y row.
+			     Minimum width 6px so very short entries are still clickable. -->
 			{#each events as e, i}
-				<line
-					x1={xScale(e.hour)}
-					x2={xScale(e.hour)}
-					y1={yScale(0)}
-					y2={yScale(e.duration)}
-					stroke={e.color}
-					stroke-width={hoverIdx === i ? 4 : 3}
-					stroke-linecap="round"
-					stroke-opacity={hoverIdx === null || hoverIdx === i ? 1 : 0.45}
-					style="cursor: pointer; transition: stroke-width 0.15s, stroke-opacity 0.15s;"
-					onmouseenter={(ev) => setHover(i, ev)}
-					onmouseleave={handleMouseLeave}
-				/>
-				<circle
-					cx={xScale(e.hour)}
-					cy={yScale(e.duration)}
-					r={hoverIdx === i ? 6 : 4}
+				{@const xStart = xScale(e.startHour)}
+				{@const xEnd = xScale(e.endHour)}
+				{@const w = Math.max(6, xEnd - xStart)}
+				{@const y = laneY(e.lane)}
+				{@const dim = hoverIdx !== null && hoverIdx !== i}
+				<rect
+					x={xStart}
+					y={y}
+					width={w}
+					height={BOX_HEIGHT}
+					rx="4"
 					fill={e.color}
-					fill-opacity={hoverIdx === null || hoverIdx === i ? 1 : 0.45}
-					stroke="var(--color-card, #fff)"
-					stroke-width="2"
-					style="cursor: pointer; transition: r 0.15s, fill-opacity 0.15s;"
+					fill-opacity={dim ? 0.35 : (e.inferredStart ? 0.18 : 0.85)}
+					stroke={e.color}
+					stroke-width={hoverIdx === i ? 2.5 : 1.5}
+					stroke-opacity={dim ? 0.55 : 1}
+					stroke-dasharray={e.inferredStart ? '4,3' : undefined}
+					style="cursor: pointer; transition: fill-opacity 0.15s, stroke-width 0.15s;"
 					onmouseenter={(ev) => setHover(i, ev)}
 					onmouseleave={handleMouseLeave}
 				/>
+				<!-- In-box label when the box is wide enough to fit it -->
+				{#if w >= 60}
+					<text
+						x={xStart + 8}
+						y={y + BOX_HEIGHT / 2}
+						dy="0.32em"
+						class="pointer-events-none text-[11px] font-semibold"
+						fill={e.inferredStart ? e.color : 'white'}
+						fill-opacity={dim ? 0.6 : 1}
+					>
+						<tspan>{e.category}</tspan>
+						{#if w >= 120}
+							<tspan dx="6" class="text-[10px] font-mono" fill-opacity={dim ? 0.5 : 0.85}>
+								{fmtDuration(e.duration)}
+							</tspan>
+						{/if}
+					</text>
+				{/if}
 			{/each}
 
 			<!-- Empty state hint -->
@@ -379,7 +426,7 @@
 					y={HEIGHT / 2 + 14}
 					text-anchor="middle"
 					class="fill-muted-foreground/60 text-[10px]"
-				>Each entry shows up as a vertical spike at its time-of-day.</text>
+				>Each entry becomes a colored box spanning its start → end time.</text>
 			{/if}
 		</svg>
 
@@ -396,8 +443,11 @@
 					<span class="text-muted-foreground">·</span>
 					<span class="font-mono">{fmtDuration(e.duration)}</span>
 				</div>
-				<div class="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground">
-					{e.kind === 'timer' ? 'Timer' : 'Manual'} · stopped {fmtClock(e.iso, $timezone)}
+				<div class="mt-1 font-mono text-[11px] text-muted-foreground">
+					{fmtClock(e.startIso, $timezone)} – {fmtClock(e.endIso, $timezone)}
+				</div>
+				<div class="mt-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+					{e.kind === 'timer' ? 'Timer' : 'Manual'}{e.inferredStart ? ' · start inferred' : ''}
 				</div>
 				{#if e.description}
 					<div class="mt-1.5 leading-snug">{e.description}</div>
