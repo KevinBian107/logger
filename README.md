@@ -89,14 +89,17 @@ Open [http://localhost:5173](http://localhost:5173).
 For a launch-and-use experience (DB lives in `~/Library/Application Support/Logger/`,
 no terminal windows, native window via WKWebView):
 
+Run all commands from the repo root (the `--project backend` flag points uv
+at `backend/pyproject.toml`):
+
 ```bash
 # One-time deps
-uv sync --extra macapp                          # adds pywebview + PyInstaller
+uv sync --project backend --extra macapp        # adds pywebview + PyInstaller
 pnpm --dir frontend install
 
 # Build
 pnpm --dir frontend build                        # static SvelteKit -> frontend/build
-uv run python scripts/build_macapp.py            # PyInstaller -> dist/Logger.app
+uv run --project backend python scripts/build_macapp.py   # PyInstaller -> dist/Logger.app
 
 # Launch
 open dist/Logger.app
