@@ -70,6 +70,7 @@ async def update_manual_entry(
     duration_minutes: int | None = None,
     description: str | None = None,
     location: str | None = None,
+    start_time: str | None = None,
 ) -> ManualEntry:
     """Edit a manual entry, rebalancing the aggregated observation if the date,
     category, or duration changes. None means "don't change this field"."""
@@ -97,6 +98,9 @@ async def update_manual_entry(
         entry.description = description or None
     if location is not None:
         entry.location = location or None
+    if start_time is not None:
+        # Empty string clears it; otherwise store the ISO as given.
+        entry.start_time = start_time or None
 
     new_mins = entry.duration_minutes or 0
     if (entry.date != old_date) or (entry.category_id != old_cat) or (new_mins != old_mins):

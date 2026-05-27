@@ -21,6 +21,7 @@ async def _entry_response(entry: ManualEntry, db: AsyncSession) -> ManualEntryRe
         duration_minutes=entry.duration_minutes,
         description=entry.description,
         location=entry.location,
+        start_time=entry.start_time,
         created_at=entry.created_at,
     )
 
@@ -86,6 +87,7 @@ async def update_manual_entry(
             duration_minutes=data.duration_minutes,
             description=data.description,
             location=data.location,
+            start_time=data.start_time,
         )
         await db.commit()
         return await _entry_response(entry, db)

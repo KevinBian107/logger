@@ -135,6 +135,7 @@ export interface ManualEntryResponse {
 	duration_minutes: number;
 	description: string | null;
 	location: string | null;
+	start_time: string | null;     // ISO; null = not placed on timeline yet (UI infers)
 	created_at: string | null;
 }
 
@@ -575,6 +576,7 @@ export const api = {
 		duration_minutes?: number;
 		description?: string | null;
 		location?: string | null;
+		start_time?: string | null;
 	}) =>
 		request<ManualEntryResponse>(`/manual-entries/${id}`, {
 			method: 'PUT',

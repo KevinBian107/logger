@@ -96,3 +96,53 @@ export function hourInTz(tz: string, date: Date = new Date()): number {
 export function currentTz(): string {
 	return get(timezone);
 }
+
+/** Build a UTC ISO timestamp from local (YYYY-MM-DD, HH, MM) in the named tz.
+ *
+ * Uses Intl to derive the tz offset for the wall-clock instant (DST-aware) and
+ * inverts it. Returns an ISO string like "2026-05-27T00:55:00.000Z".
+ */
+export function localDateTimeToUtcIso(
+	ymd: string,
+	hours: number,
+	minutes: number,
+	tz: string,
+): string {
+	const h = String(Math.max(0, Math.min(23, Math.floor(hours)))).padStart(2, '0');
+	const m = String(Math.max(0, Math.min(59, Math.floor(minutes)))).padStart(2, '0');
+	// Treat the wall-clock components as if they were UTC, then derive the
+	// offset for the chosen tz at that instant and subtract it.
+	const fakeUtc = new Date(`${ymd}T${h}:${m}:00Z`);
+	const parts = Object.fromEntries(
+		new Intl.DateTimeFormat('en-US', {
+			timeZone: tz,
+			year: 'numeric', month: '2-digit', day: '2-digit',
+			hour: '2-digit', minute: '2-digit', second: '2-digit',
+			hour12: false,
+		}).formatToParts(fakeUtc).map((p) => [p.type, p.value]),
+	);
+	const hh = parts.hour === '24' ? '00' : parts.hour;
+	const rendered = new Date(`${parts.year}-${parts.month}-${parts.day}T${hh}:${parts.minute}:${parts.second}Z`);
+	const offset = rendered.getTime() - fakeUtc.getTime();
+	return new Date(fakeUtc.getTime() - offset).toISOString();
+}
+
+/** Inverse: an ISO string → "HH:MM" in the named tz. Used to populate edit forms. */
+export function isoToLocalHHMM(iso: string | null | undefined, tz: string): string {
+	if (!iso) return '';
+	try {
+		const d = new Date(iso);
+		const parts = Object.fromEntries(
+			new Intl.DateTimeFormat('en-US', {
+				timeZone: tz,
+				hour: '2-digit',
+				minute: '2-digit',
+				hour12: false,
+			}).formatToParts(d).map((p) => [p.type, p.value]),
+		);
+		const hh = parts.hour === '24' ? '00' : parts.hour;
+		return `${hh}:${parts.minute}`;
+	} catch {
+		return '';
+	}
+}

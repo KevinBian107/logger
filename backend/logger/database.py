@@ -70,6 +70,7 @@ async def _migrate_schema(conn) -> None:
     await add_col_if_missing("category_families", "group_id", "group_id INTEGER REFERENCES category_groups(id) ON DELETE SET NULL")
     await add_col_if_missing("category_groups", "position", "position INTEGER DEFAULT 0")
     await add_col_if_missing("category_groups", "is_system", "is_system BOOLEAN DEFAULT 0")
+    await add_col_if_missing("manual_entries", "start_time", "start_time TEXT")
 
 
 async def init_db() -> None:

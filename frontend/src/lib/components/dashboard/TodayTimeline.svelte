@@ -9,14 +9,14 @@
 	 * as a horizontal rectangle from its start time to its end time, color-coded
 	 * by family. Overlapping intervals stack into lanes.
 	 *
-	 * - Timer entries: solid boxes spanning real start_time → end_time
-	 * - Manual entries: dashed-outline boxes — the start time is INFERRED as
-	 *   (created_at − duration_minutes), since manuals only record when they
-	 *   were logged, not when the work happened. Hover label makes this clear.
+	 * - Timer entries: solid boxes spanning real start_time → end_time.
+	 * - Manual entries with a real start_time: solid boxes (same as timers).
+	 * - Manual entries with NO start_time: dashed-outline boxes positioned at
+	 *   the INFERRED slot (created_at − duration), since we only know when they
+	 *   were logged. Edit the entry to set a real start time.
 	 *
-	 * Uses BOTH:
-	 *   - TIME data: x-extent (start → end) and lane layout
-	 *   - TEXT data: description, location, category — revealed on hover
+	 * Interaction is view-only: hover shows the dim/highlight, click on a box
+	 * toggles a tooltip with the entry's details.
 	 */
 
 	let {
@@ -32,29 +32,29 @@
 	let container = $state<HTMLDivElement | null>(null);
 	let svgEl = $state<SVGSVGElement | null>(null);
 	let stableWidth = $state(720);
+	let containerHovered = $state(false);
 	const MARGIN = { top: 16, right: 18, bottom: 28, left: 18 };
 	const BOX_HEIGHT = 28;
 	const LANE_GAP = 4;
 	const MAX_LANES = 4;
 
 	type DayEvent = {
-		startHour: number;       // hours since midnight (e.g., 14.55)
+		entryId: number;
+		startHour: number;
 		endHour: number;
-		startIso: string;        // for tooltip — original start (or inferred)
-		endIso: string;          // for tooltip
-		duration: number;        // minutes
+		startIso: string;
+		endIso: string;
+		duration: number;
 		category: string;
 		family: string | null;
 		description: string | null;
 		location: string | null;
 		kind: 'timer' | 'manual';
-		inferredStart: boolean;  // true for manual entries
+		inferredStart: boolean; // true for manual entries without a real start_time
 		color: string;
-		lane: number;            // assigned by stacking pass
+		lane: number;
 	};
 
-	// Stable family-color palette. Same family display name → same color across
-	// sessions and days, without an extra API call to fetch family.color.
 	const PALETTE = [
 		'#6366F1', '#10B981', '#F59E0B', '#EF4444',
 		'#A855F7', '#06B6D4', '#EC4899', '#84CC16',
@@ -83,7 +83,6 @@
 			const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
 			const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
 			const s = Number(parts.find((p) => p.type === 'second')?.value ?? 0);
-			// Some locales render midnight as 24 — normalise to 0.
 			const hh = h === 24 ? 0 : h;
 			return hh + m / 60 + s / 3600;
 		} catch {
@@ -111,21 +110,20 @@
 		return `${h}h ${m}m`;
 	}
 
-	// Build raw events with real or inferred start/end times.
+	// Raw, unlaned events. Manual entries use start_time when set, otherwise
+	// fall back to created_at − duration with `inferredStart=true`.
 	const rawEvents = $derived.by<DayEvent[]>(() => {
 		const tz = $timezone;
 		const out: DayEvent[] = [];
 
 		for (const t of timerEntries) {
 			if (!t.end_time || !t.duration_minutes) continue;
-			// Timer has both start_time and end_time. Use them directly.
-			const startIso = t.start_time;
-			const endIso = t.end_time;
 			out.push({
-				startHour: hourOfDay(startIso, tz),
-				endHour: hourOfDay(endIso, tz),
-				startIso,
-				endIso,
+				entryId: t.id,
+				startHour: hourOfDay(t.start_time, tz),
+				endHour: hourOfDay(t.end_time, tz),
+				startIso: t.start_time,
+				endIso: t.end_time,
 				duration: t.duration_minutes,
 				category: t.category_name || 'Untitled',
 				family: t.category_name,
@@ -138,24 +136,37 @@
 			});
 		}
 		for (const m of manualEntries) {
-			if (!m.created_at || !m.duration_minutes) continue;
-			// Manual entries don't record when the work happened — only when the
-			// user submitted the form. Approximate: end at created_at, infer
-			// start as created_at - duration. Flagged in the UI as inferred.
-			const endHour = hourOfDay(m.created_at, tz);
-			const startHour = Math.max(0, endHour - m.duration_minutes / 60);
+			if (!m.duration_minutes) continue;
+			const hasStart = !!m.start_time;
+			let startHour: number;
+			let endHour: number;
+			let startIso: string;
+			let endIso: string;
+			if (hasStart) {
+				startHour = hourOfDay(m.start_time!, tz);
+				endHour = startHour + m.duration_minutes / 60;
+				startIso = m.start_time!;
+				endIso = m.start_time!;
+			} else {
+				if (!m.created_at) continue;
+				endHour = hourOfDay(m.created_at, tz);
+				startHour = Math.max(0, endHour - m.duration_minutes / 60);
+				startIso = m.created_at;
+				endIso = m.created_at;
+			}
 			out.push({
+				entryId: m.id,
 				startHour,
 				endHour,
-				startIso: m.created_at,
-				endIso: m.created_at,
+				startIso,
+				endIso,
 				duration: m.duration_minutes,
 				category: m.category_name || 'Untitled',
 				family: m.category_name,
 				description: m.description,
 				location: m.location,
 				kind: 'manual',
-				inferredStart: true,
+				inferredStart: !hasStart,
 				color: colorFor(m.category_name),
 				lane: 0,
 			});
@@ -164,10 +175,8 @@
 	});
 
 	// Lane assignment so overlapping intervals don't render on top of each other.
-	// Greedy: each event reuses the first lane whose last-end time precedes it,
-	// else opens a new lane. Capped at MAX_LANES; overflow fits into the last.
 	const events = $derived.by<DayEvent[]>(() => {
-		const laneEnds: number[] = []; // lane index → end of last event in that lane
+		const laneEnds: number[] = [];
 		const result: DayEvent[] = [];
 		for (const e of rawEvents) {
 			let assigned = -1;
@@ -183,7 +192,6 @@
 					laneEnds.push(e.endHour);
 					assigned = laneEnds.length - 1;
 				} else {
-					// Overflow: drop into the last lane (best-effort visualization).
 					assigned = MAX_LANES - 1;
 					laneEnds[assigned] = Math.max(laneEnds[assigned], e.endHour);
 				}
@@ -201,11 +209,8 @@
 		MARGIN.top + laneCount * (BOX_HEIGHT + LANE_GAP) - LANE_GAP + MARGIN.bottom,
 	);
 
-	// Now (hour-of-day in the chosen tz). Updates on each render — that's fine
-	// because the dashboard polls timers anyway.
 	const nowHour = $derived(hourOfDay(new Date().toISOString(), $timezone));
 
-	// Domain: earliest startHour minus a bit, to max(now, last endHour) plus a bit
 	const xDomain = $derived.by<[number, number]>(() => {
 		if (events.length === 0) {
 			return [6, Math.max(12, nowHour + 0.5)];
@@ -216,47 +221,52 @@
 		return [Math.max(0, first - pad), Math.min(24, last + pad)];
 	});
 
+	// ── Interaction: view-only. Hover = highlight, click = tooltip. ───────
 	let hoverIdx = $state<number | null>(null);
-	let hoverX = $state(0);
-	let hoverY = $state(0);
+	let selectedIdx = $state<number | null>(null);
+	let selectedX = $state(0);
+	let selectedY = $state(0);
 
-	function handleMouseMove(e: MouseEvent) {
-		if (!svgEl) return;
-		const rect = svgEl.getBoundingClientRect();
-		hoverX = e.clientX - rect.left;
-		hoverY = e.clientY - rect.top;
+	function setHover(i: number) {
+		hoverIdx = i;
 	}
 
-	function handleMouseLeave() {
+	function clearHover() {
 		hoverIdx = null;
 	}
 
-	function setHover(i: number, e: MouseEvent) {
-		hoverIdx = i;
-		handleMouseMove(e);
+	function onBoxClick(i: number, ev: MouseEvent) {
+		if (svgEl) {
+			const r = svgEl.getBoundingClientRect();
+			selectedX = ev.clientX - r.left;
+			selectedY = ev.clientY - r.top;
+		}
+		selectedIdx = selectedIdx === i ? null : i;
 	}
 
-	// ── Rendering with D3 (scales + path) ─────────────────────────────────
+	function onKeyDown(e: KeyboardEvent) {
+		if (e.key === 'Escape' && selectedIdx !== null) {
+			selectedIdx = null;
+		}
+	}
+
+	// ── Rendering with D3 (scales) ────────────────────────────────────────
 	const W = $derived(stableWidth);
 	const xScale = $derived(
 		d3.scaleLinear().domain(xDomain).range([MARGIN.left, W - MARGIN.right]),
 	);
-	// Lane → y position
+
 	function laneY(lane: number): number {
 		return MARGIN.top + lane * (BOX_HEIGHT + LANE_GAP);
 	}
 
-	// Axis ticks
 	const xTicks = $derived.by(() => {
 		const [lo, hi] = xDomain;
 		const span = hi - lo;
-		// Step size: 1h if span < 8, else 2h
 		const step = span < 8 ? 1 : 2;
 		const ticks: number[] = [];
 		const start = Math.ceil(lo);
-		for (let h = start; h <= Math.floor(hi); h += step) {
-			ticks.push(h);
-		}
+		for (let h = start; h <= Math.floor(hi); h += step) ticks.push(h);
 		return ticks;
 	});
 
@@ -267,12 +277,10 @@
 		return `${h - 12}p`;
 	}
 
-	// No y-axis ticks with Gantt-style boxes — position carries no quantitative
-	// meaning (it's just lane stacking). Time + duration are conveyed by x-extent.
-
 	// ── ResizeObserver ────────────────────────────────────────────────────
 	let resizeObserver: ResizeObserver | null = null;
 	let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+
 	onMount(() => {
 		if (!container) return;
 		const measure = () => {
@@ -286,28 +294,38 @@
 			resizeTimer = setTimeout(measure, 80);
 		});
 		resizeObserver.observe(container);
+		window.addEventListener('keydown', onKeyDown);
 	});
 
 	onDestroy(() => {
 		if (resizeObserver) resizeObserver.disconnect();
 		if (resizeTimer) clearTimeout(resizeTimer);
+		window.removeEventListener('keydown', onKeyDown);
 	});
 
-	// Tooltip position (clamped to container)
 	const tooltipStyle = $derived.by(() => {
-		const tx = Math.min(Math.max(hoverX + 14, 0), W - 240);
-		const ty = Math.max(hoverY - 60, 8);
+		const tx = Math.min(Math.max(selectedX + 14, 0), W - 240);
+		const ty = Math.max(selectedY - 60, 8);
 		return `left: ${tx}px; top: ${ty}px;`;
 	});
 </script>
 
-<section bind:this={container} class="relative">
-	<div class="mb-3 flex items-baseline justify-between">
+<section
+	bind:this={container}
+	class="relative"
+	onmouseenter={() => (containerHovered = true)}
+	onmouseleave={() => (containerHovered = false)}
+	role="presentation"
+>
+	<div class="mb-3 flex items-baseline justify-between gap-3">
 		<h2 class="text-lg font-semibold">Today's Timeline</h2>
-		<span class="text-xs text-muted-foreground">
+		<span
+			class="text-xs text-muted-foreground text-right transition-opacity duration-150"
+			class:opacity-0={!containerHovered}
+		>
 			{events.length === 0
 				? 'Hit play on a category to start filling this in'
-				: `${fmtDuration(totalMinutes)} across ${events.length} entr${events.length === 1 ? 'y' : 'ies'}`}
+				: `${fmtDuration(totalMinutes)} across ${events.length} entr${events.length === 1 ? 'y' : 'ies'} · click a box for details · edit a manual entry to set its start time`}
 		</span>
 	</div>
 
@@ -318,10 +336,9 @@
 			height={HEIGHT}
 			viewBox="0 0 {W} {HEIGHT}"
 			class="block w-full"
-			onmousemove={handleMouseMove}
-			onmouseleave={handleMouseLeave}
+			onmouseleave={clearHover}
 			role="img"
-			aria-label="Timeline of today's entries — each spike is one logged session"
+			aria-label="Timeline of today's entries — each box spans an entry's start to end time"
 		>
 			<!-- X axis baseline -->
 			<line
@@ -351,8 +368,7 @@
 				>{fmtHour(h)}</text>
 			{/each}
 
-			<!-- "Now" vertical guide if a timer is running. Drawn behind spikes
-			     so the impulses stay the dominant marks. -->
+			<!-- "Now" vertical guide when a timer is running -->
 			{#if hasActiveTimer && nowHour >= xDomain[0] && nowHour <= xDomain[1]}
 				<line
 					x1={xScale(nowHour)}
@@ -369,8 +385,7 @@
 				</circle>
 			{/if}
 
-			<!-- One box per event: x = start, width = end - start, lane = y row.
-			     Minimum width 6px so very short entries are still clickable. -->
+			<!-- Boxes -->
 			{#each events as e, i}
 				{@const xStart = xScale(e.startHour)}
 				{@const xEnd = xScale(e.endHour)}
@@ -390,10 +405,10 @@
 					stroke-opacity={dim ? 0.55 : 1}
 					stroke-dasharray={e.inferredStart ? '4,3' : undefined}
 					style="cursor: pointer; transition: fill-opacity 0.15s, stroke-width 0.15s;"
-					onmouseenter={(ev) => setHover(i, ev)}
-					onmouseleave={handleMouseLeave}
+					onclick={(ev) => onBoxClick(i, ev)}
+					onmouseenter={() => setHover(i)}
+					onmouseleave={clearHover}
 				/>
-				<!-- In-box label when the box is wide enough to fit it -->
 				{#if w >= 60}
 					<text
 						x={xStart + 8}
@@ -413,7 +428,7 @@
 				{/if}
 			{/each}
 
-			<!-- Empty state hint -->
+			<!-- Empty state -->
 			{#if events.length === 0}
 				<text
 					x={W / 2}
@@ -430,18 +445,29 @@
 			{/if}
 		</svg>
 
-		<!-- Tooltip -->
-		{#if hoverIdx !== null && events[hoverIdx]}
-			{@const e = events[hoverIdx]}
+		<!-- Tooltip — opens on click, dismissed by Escape, clicking outside, or the × button. -->
+		{#if selectedIdx !== null && events[selectedIdx]}
+			{@const e = events[selectedIdx]}
 			<div
-				class="pointer-events-none absolute z-10 max-w-xs rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg"
+				class="absolute z-10 max-w-xs rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg"
 				style={tooltipStyle}
 			>
-				<div class="flex items-center gap-1.5">
-					<span class="h-2 w-2 rounded-full" style="background: {e.color}"></span>
-					<span class="font-medium">{e.category}</span>
-					<span class="text-muted-foreground">·</span>
-					<span class="font-mono">{fmtDuration(e.duration)}</span>
+				<div class="flex items-center justify-between gap-2">
+					<div class="flex min-w-0 items-center gap-1.5">
+						<span class="h-2 w-2 shrink-0 rounded-full" style="background: {e.color}"></span>
+						<span class="truncate font-medium">{e.category}</span>
+						<span class="text-muted-foreground">·</span>
+						<span class="shrink-0 font-mono">{fmtDuration(e.duration)}</span>
+					</div>
+					<button
+						onclick={() => (selectedIdx = null)}
+						class="-mr-1 shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+						aria-label="Close"
+					>
+						<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+						</svg>
+					</button>
 				</div>
 				<div class="mt-1 font-mono text-[11px] text-muted-foreground">
 					{fmtClock(e.startIso, $timezone)} – {fmtClock(e.endIso, $timezone)}

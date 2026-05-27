@@ -8,6 +8,7 @@
 	} from '$lib/api/client';
 	import LateNightDatePrompt from './LateNightDatePrompt.svelte';
 	import { shortDateLabel } from '$lib/utils/lateNight';
+	import { timezone, isoToLocalHHMM, localDateTimeToUtcIso } from '$lib/stores/timezone';
 
 	// One of these will be set depending on entry type
 	let {
@@ -35,6 +36,11 @@
 	let durationMinutes = $state<number>(entry?.duration_minutes ?? 0);
 	let description = $state<string>(entry?.description ?? '');
 	let location = $state<string>(entry?.location ?? '');
+	// Manual entries can carry a real start_time. We render it as HH:MM in the
+	// user's tz; an empty string means "unset / inferred from created_at".
+	let startTimeHHMM = $state<string>(
+		manualEntry?.start_time ? isoToLocalHHMM(manualEntry.start_time, $timezone) : ''
+	);
 
 	let saving = $state(false);
 	let deleting = $state(false);
@@ -54,7 +60,7 @@
 		saving = true;
 		error = '';
 		try {
-			const patch = {
+			const patch: Record<string, unknown> = {
 				category_id: categoryId,
 				date,
 				duration_minutes: durationMinutes,
@@ -64,6 +70,15 @@
 			if (kind === 'timer') {
 				await api.updateTimer(entry.id, patch);
 			} else {
+				// For manual entries, also translate the HH:MM input back to a UTC
+				// ISO start_time. Empty input → "" tells the backend to clear it
+				// (returns the entry to the inferred slot on the timeline).
+				if (startTimeHHMM) {
+					const [h, m] = startTimeHHMM.split(':').map(Number);
+					patch.start_time = localDateTimeToUtcIso(date, h || 0, m || 0, $timezone);
+				} else {
+					patch.start_time = '';
+				}
 				await api.updateManualEntry(entry.id, patch);
 			}
 			onSaved();
@@ -171,6 +186,37 @@
 			     Setting `value` here lets the prompt override the date input above
 			     when the user picks "yesterday". -->
 			<LateNightDatePrompt bind:value={date} />
+
+			<!-- Start time (manual entries only). Empty input → entry falls back
+			     to the inferred-position placement on the Today Timeline. -->
+			{#if kind === 'manual'}
+				<div>
+					<label class="block text-xs font-medium text-muted-foreground mb-1" for="edit-start">
+						Start time
+						<span class="ml-1 font-normal italic text-muted-foreground/70">
+							optional — leave blank to keep inferred placement
+						</span>
+					</label>
+					<div class="flex items-center gap-2">
+						<input
+							id="edit-start"
+							type="time"
+							bind:value={startTimeHHMM}
+							class="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+						/>
+						{#if startTimeHHMM}
+							<button
+								type="button"
+								onclick={() => (startTimeHHMM = '')}
+								class="text-xs text-muted-foreground hover:text-foreground"
+								title="Clear start time"
+							>
+								Clear
+							</button>
+						{/if}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Description -->
 			<div>

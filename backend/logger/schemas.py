@@ -270,6 +270,8 @@ class ManualEntryUpdate(BaseModel):
     duration_minutes: int | None = None
     description: str | None = None
     location: str | None = None
+    # ISO timestamp (UTC or with offset). Pass null to clear; omit to leave alone.
+    start_time: str | None = None
 
 
 class ManualEntryResponse(BaseModel):
@@ -281,6 +283,9 @@ class ManualEntryResponse(BaseModel):
     duration_minutes: int
     description: str | None
     location: str | None
+    # When the work actually happened (set by dragging the entry on the timeline).
+    # null = unknown — UI infers start as created_at − duration.
+    start_time: str | None = None
     created_at: str | None
 
     model_config = {"from_attributes": True}

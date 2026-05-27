@@ -102,6 +102,7 @@ async def get_daily_activity(date: str, db: AsyncSession = Depends(get_db)):
             duration_minutes=m.duration_minutes,
             description=m.description,
             location=m.location,
+            start_time=m.start_time,
             created_at=m.created_at,
         ))
 

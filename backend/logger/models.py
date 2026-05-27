@@ -183,6 +183,10 @@ class ManualEntry(Base):
     duration_minutes = Column(Integer, nullable=False)
     description = Column(Text)
     location = Column(Text)
+    # When the work actually happened. created_at is when the user logged the
+    # entry; start_time is when the work began. NULL = unknown (legacy / not yet
+    # placed on the timeline). Set by dragging the entry on the Today Timeline.
+    start_time = Column(Text)
     created_at = Column(Text, server_default=text("(datetime('now'))"))
 
     __table_args__ = (
