@@ -168,7 +168,11 @@
 				const px = x(parseDate(d.date)!);
 				tooltipLine.attr('x1', px).attr('x2', px).style('opacity', 1);
 
-				const lines = [`${d.date}  ·  ${formatHoursMinutes(d.total_minutes)}`];
+				// In "overall" mode each point is a Monday-anchored weekly bucket,
+				// so prefix the date with "Week of" to be honest about what the
+				// total means. Year/Month mode keeps the day-level wording.
+				const lead = timeScale === 'overall' ? `Week of ${d.date}` : d.date;
+				const lines = [`${lead}  ·  ${formatHoursMinutes(d.total_minutes)}`];
 				for (const c of d.categories.slice().sort((a, b) => b.minutes - a.minutes).slice(0, 5)) {
 					lines.push(`  ${c.name}: ${formatHoursMinutes(c.minutes)}`);
 				}

@@ -21,6 +21,48 @@
 
 	let overview = $state<AnalyticsOverviewResponse | null>(null);
 	let dailyData = $state<DailySeriesPoint[]>([]);
+
+	// Monday-anchored YYYY-MM-DD for any input date string (parsed as local).
+	function mondayOf(ymd: string): string {
+		const [y, m, d] = ymd.split('-').map(Number);
+		const dt = new Date(y, m - 1, d);
+		const day = dt.getDay(); // 0=Sun … 6=Sat
+		const shift = day === 0 ? -6 : 1 - day;
+		dt.setDate(dt.getDate() + shift);
+		const pad = (n: number) => String(n).padStart(2, '0');
+		return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+	}
+
+	// Group daily-series points into ISO weeks, summing total_minutes and merging
+	// the per-category breakdowns. The Monday of each week becomes the point's
+	// `date`, so DailyAreaChart's existing time-axis logic just works.
+	function bucketByWeek(series: DailySeriesPoint[]): DailySeriesPoint[] {
+		const buckets = new Map<
+			string,
+			{ total: number; cats: Map<string, { name: string; minutes: number; color: string | null }> }
+		>();
+		for (const d of series) {
+			const monday = mondayOf(d.date);
+			let b = buckets.get(monday);
+			if (!b) {
+				b = { total: 0, cats: new Map() };
+				buckets.set(monday, b);
+			}
+			b.total += d.total_minutes;
+			for (const c of d.categories) {
+				const existing = b.cats.get(c.name);
+				if (existing) existing.minutes += c.minutes;
+				else b.cats.set(c.name, { name: c.name, minutes: c.minutes, color: c.color });
+			}
+		}
+		return [...buckets.entries()]
+			.sort((a, b) => a[0].localeCompare(b[0]))
+			.map(([date, b]) => ({
+				date,
+				total_minutes: b.total,
+				categories: [...b.cats.values()],
+			}));
+	}
 	let categoryData = $state<CategoryBreakdownItem[]>([]);
 	let heatmapData = $state<HeatmapPoint[]>([]);
 	let sessionData = $state<SessionComparisonItem[]>([]);
@@ -34,6 +76,12 @@
 	let scale = $state<'overall' | 'year' | 'month'>('overall');
 	let filterYear = $state<number | null>(null);
 	let filterMonth = $state<number | null>(null);
+
+	// For overall view, bucket the daily series into ISO weeks. Year and Month
+	// stay day-resolution since they have ≤366 / 31 points respectively.
+	const chartData = $derived(
+		scale === 'overall' ? bucketByWeek(dailyData) : dailyData,
+	);
 
 	async function fetchFilteredData(filters: AnalyticsFilters) {
 		try {
@@ -164,8 +212,9 @@
 			</div>
 		{/if}
 
-		<!-- Daily area chart -->
-		<DailyAreaChart data={dailyData} timeScale={scale} />
+		<!-- Trend chart — daily for Year/Month, weekly buckets for Overall.
+		     The bucketing happens client-side in `chartData`. -->
+		<DailyAreaChart data={chartData} timeScale={scale} />
 
 		<!-- Two-column: Category bars + Heatmap -->
 		<div class="grid gap-4 lg:grid-cols-2">
