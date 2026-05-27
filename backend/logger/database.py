@@ -90,6 +90,7 @@ async def init_db() -> None:
     # family) so detection works on the same boot, not the next one.
     from logger.services.family_service import seed_default_families_and_rules, link_orphans_to_seed_families
     from logger.services.group_service import seed_default_groups, migrate_family_types_to_groups
+    from logger.services.timer_service import realign_timer_dates_to_user_tz
     from logger.models import Setting
     from sqlalchemy import select
     async with async_session() as session:
@@ -100,6 +101,9 @@ async def init_db() -> None:
         # Retroactively link orphan categories to any newly-seeded families
         # (e.g. Enigmorphic added later → linked to its Research family here).
         await link_orphans_to_seed_families(session)
+        # Realign timer dates that were stored in UTC instead of the user's
+        # local tz (one-shot fix for entries created before the tz-aware patch).
+        await realign_timer_dates_to_user_tz(session)
         # Seed default timezone setting (idempotent — skipped if already set).
         existing_tz = await session.execute(select(Setting).where(Setting.key == "timezone"))
         if not existing_tz.scalar_one_or_none():

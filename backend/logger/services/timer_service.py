@@ -1,16 +1,46 @@
 """Timer lifecycle management."""
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from logger.models import Category, TimerEntry
+from logger.models import Category, Setting, TimerEntry
 from logger.services.observation_service import (
     upsert_observation,
     upsert_text_entry,
     subtract_observation,
 )
+
+
+DEFAULT_TIMEZONE = "America/Los_Angeles"
+
+
+async def _user_tz(db: AsyncSession) -> str:
+    """Read the user's chosen timezone from settings, default to LA."""
+    result = await db.execute(select(Setting).where(Setting.key == "timezone"))
+    row = result.scalar_one_or_none()
+    return (row.value if row else None) or DEFAULT_TIMEZONE
+
+
+def _iso_to_local_date(iso_str: str, tz_name: str) -> str:
+    """ISO-8601 timestamp → YYYY-MM-DD in the named IANA timezone.
+
+    The DB stores timestamps in UTC; the user wants date-bucketing in their
+    local timezone. Stop-time of 23:50 PDT May 26 = 06:50 UTC May 27, and the
+    entry belongs to May 26 in the user's view.
+    """
+    if not iso_str:
+        return ""
+    try:
+        s = iso_str.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(ZoneInfo(tz_name)).strftime("%Y-%m-%d")
+    except (ValueError, KeyError):
+        return ""
 
 
 def _now() -> datetime:
@@ -25,7 +55,8 @@ async def start_timer(
     session_id: int, category_id: int, db: AsyncSession
 ) -> TimerEntry:
     now = _now_iso()
-    today = _now().strftime("%Y-%m-%d")
+    tz_name = await _user_tz(db)
+    today = _iso_to_local_date(now, tz_name)
     timer = TimerEntry(
         session_id=session_id,
         category_id=category_id,
@@ -231,6 +262,53 @@ async def get_active_timers(session_id: int, db: AsyncSession) -> list[TimerEntr
         ).order_by(TimerEntry.start_time.desc())
     )
     return list(result.scalars().all())
+
+
+async def realign_timer_dates_to_user_tz(db: AsyncSession) -> dict:
+    """For each stopped timer, recompute its `date` from start_time in the user's
+    timezone. If the stored date is wrong (UTC-derived from a prior build), fix it
+    and rebalance the aggregated observation (subtract from old date, add to new).
+
+    Idempotent: only touches rows where the recomputed date differs.
+    """
+    tz_name = await _user_tz(db)
+
+    timers_q = await db.execute(
+        select(TimerEntry).where(TimerEntry.is_active == False)  # noqa: E712
+    )
+    fixed = 0
+    for t in timers_q.scalars().all():
+        if not t.start_time:
+            continue
+        correct = _iso_to_local_date(t.start_time, tz_name)
+        if not correct or correct == t.date:
+            continue
+
+        old_date = t.date
+        # Move the aggregate to the correct day
+        if t.duration_minutes and t.duration_minutes > 0:
+            await subtract_observation(
+                session_id=t.session_id,
+                category_id=t.category_id,
+                date=old_date,
+                minutes=t.duration_minutes,
+                db=db,
+            )
+            await upsert_observation(
+                session_id=t.session_id,
+                category_id=t.category_id,
+                date=correct,
+                minutes=t.duration_minutes,
+                source="timer",
+                db=db,
+            )
+
+        t.date = correct
+        fixed += 1
+
+    if fixed:
+        await db.commit()
+    return {"timers_realigned": fixed}
 
 
 async def get_timers_for_date(
