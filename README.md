@@ -34,6 +34,19 @@ A ground-up rebuild of [Chatable-Study-Database](https://github.com/KevinBian107
 | AI | Claude API (Anthropic Python SDK) |
 | Package managers | uv (Python), pnpm (Node) |
 
+## Two ways to run
+
+log(ger) supports two run modes. The code is the same; only the packaging and on-disk DB location differ.
+
+| Mode | Best for | UI served from | DB location | Hot reload? |
+|---|---|---|---|---|
+| **Mac app** (recommended) | Day-to-day use. Native window, no terminals after the build. | FastAPI's `StaticFiles` inside `dist/Logger.app` | `~/Library/Application Support/Logger/logger.db` | No (build once, then launch) |
+| **Browser dev mode** | Hacking on the code. Two terminals with live reload. | Vite dev server on `:5173`, proxying `/api/*` to `:8000` | `./logger.db` in the repo | Yes (Svelte HMR + uvicorn `--reload`) |
+
+The two DBs are independent. To copy data between them, use **Settings → Database → Download current** in one mode and **Choose .db file** in the other.
+
+The full step-by-step for each is below — start with **Quick Start** for the prereqs, then jump to either **Run (dev mode)** or **Build as a Mac app**.
+
 ## Quick Start
 
 ### Prerequisites
@@ -70,7 +83,9 @@ curl -X POST http://localhost:8000/api/import/batch
 
 CSV files follow the naming convention `{year}_{season}_study.csv` and `{year}_{season}_text.csv` (e.g., `2024_fall_study.csv`). Category columns should be clean display names — session context comes from the filename.
 
-### Run
+### Run (dev mode — browser)
+
+Use this for editing code. Two terminals with hot-reload.
 
 ```bash
 # Terminal 1 — Backend (port 8000)
@@ -82,7 +97,7 @@ cd frontend
 pnpm dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:5173](http://localhost:5173) (the **frontend** port — the backend on `:8000` only serves `/api/*` and returns 404 on `/`). Vite proxies API calls to the backend.
 
 ### Build as a Mac app
 
