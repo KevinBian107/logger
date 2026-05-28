@@ -52,9 +52,21 @@ The full step-by-step for each is below — start with **Quick Start** for the p
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 22+
+- **Node.js 22.13+** (anything older breaks `pnpm install` with `ERR_UNKNOWN_BUILTIN_MODULE: node:sqlite` — pnpm 11.x relies on the `node:sqlite` built-in added in Node 22.5 and stabilised in 22.13)
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - [pnpm](https://pnpm.io/) (Node package manager)
+
+```bash
+# macOS one-liner — installs everything and points `node` at v22
+brew install uv pnpm node@22
+brew unlink node 2>/dev/null
+brew link --overwrite --force node@22
+
+# Verify
+node --version    # → v22.x.x
+```
+
+Already on Node 20 from another project? Either use `nvm install 22 && nvm use 22`, or stay on the older pnpm: `brew install pnpm@10`.
 
 ### Install
 

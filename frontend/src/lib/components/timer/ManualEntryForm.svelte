@@ -29,15 +29,21 @@
 
 	onMount(() => {
 		const unsub = manualEntryDraft.subscribe((d) => {
-			// Only initialise from store on first mount — after that we own the values.
-			if (d.date) {
+			// Restore in-progress form input across tab navigation, but NEVER let
+			// the draft override the date with a stale value. A date persisted
+			// yesterday was silently filing today's entries under yesterday — the
+			// user saved without noticing. Only accept a stored date if it's
+			// still "today" or "yesterday" in the current local tz; otherwise
+			// keep the fresh default already in `date`.
+			const opts = lateNightDateOptions();
+			if (d.date === opts.today || d.date === opts.yesterday) {
 				date = d.date;
-				categoryId = d.categoryId;
-				hours = d.hours;
-				minutes = d.minutes;
-				description = d.description;
-				location = d.location;
 			}
+			categoryId = d.categoryId;
+			hours = d.hours;
+			minutes = d.minutes;
+			description = d.description;
+			location = d.location;
 		});
 		unsub();
 	});
@@ -68,6 +74,9 @@
 			minutes = 0;
 			description = '';
 			location = '';
+			// Re-default the date too — otherwise the local `date` would carry
+			// whatever the user picked into the next entry, including stale values.
+			date = isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date());
 			resetManualEntryDraft();
 			onCreated();
 		} catch (e: unknown) {
