@@ -29,16 +29,12 @@
 
 	onMount(() => {
 		const unsub = manualEntryDraft.subscribe((d) => {
-			// Restore in-progress form input across tab navigation, but NEVER let
-			// the draft override the date with a stale value. A date persisted
-			// yesterday was silently filing today's entries under yesterday — the
-			// user saved without noticing. Only accept a stored date if it's
-			// still "today" or "yesterday" in the current local tz; otherwise
-			// keep the fresh default already in `date`.
-			const opts = lateNightDateOptions();
-			if (d.date === opts.today || d.date === opts.yesterday) {
-				date = d.date;
-			}
+			// Restore in-progress form input across tab navigation, but NEVER
+			// touch the date. A stored "yesterday" value from a previous-day
+			// session matches today's "yesterday" string and silently files new
+			// entries under the wrong day. The date always uses the fresh
+			// initializer (today, or yesterday-in-late-night) at mount time;
+			// the user can override via the date input or the LateNightDatePrompt.
 			categoryId = d.categoryId;
 			hours = d.hours;
 			minutes = d.minutes;
