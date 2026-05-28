@@ -118,7 +118,7 @@
 	onMount(loadCategories);
 </script>
 
-<svelte:window on:keydown={handleKey} />
+<svelte:window onkeydown={handleKey} />
 
 <div
 	role="presentation"

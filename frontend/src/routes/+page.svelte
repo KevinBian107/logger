@@ -434,12 +434,18 @@
 {/if}
 
 {#if (editingTimer || editingManual) && $activeSession}
-	<EditEntryModal
-		timerEntry={editingTimer}
-		manualEntry={editingManual}
-		sessionId={$activeSession.id}
-		onSaved={handleEditSaved}
-		onDeleted={handleEditDeleted}
-		onCancel={() => { editingTimer = null; editingManual = null; }}
-	/>
+	<!-- {#key} forces a fresh mount whenever the user switches from editing one
+	     entry to another, so the modal's form state re-initialises from the new
+	     entry's values. Without this, Svelte reuses the component instance and
+	     the form keeps the FIRST entry's values — looks like "edits don't take". -->
+	{#key (editingTimer?.id ?? 't-none') + '/' + (editingManual?.id ?? 'm-none')}
+		<EditEntryModal
+			timerEntry={editingTimer}
+			manualEntry={editingManual}
+			sessionId={$activeSession.id}
+			onSaved={handleEditSaved}
+			onDeleted={handleEditDeleted}
+			onCancel={() => { editingTimer = null; editingManual = null; }}
+		/>
+	{/key}
 {/if}

@@ -10,12 +10,15 @@
 	import StopDialog from '$lib/components/timer/StopDialog.svelte';
 	import ManualEntryForm from '$lib/components/timer/ManualEntryForm.svelte';
 	import TodayLog from '$lib/components/timer/TodayLog.svelte';
+	import EditEntryModal from '$lib/components/timer/EditEntryModal.svelte';
 
 	let tab = $state<'timer' | 'manual'>('timer');
 	let categories = $state<CategoryResponse[]>([]);
 	let selectedCategoryId = $state<number | null>(null);
 	let startingTimer = $state(false);
 	let stoppingTimer = $state<TimerEntryResponse | null>(null);
+	let editingTimer = $state<TimerEntryResponse | null>(null);
+	let editingManual = $state<ManualEntryResponse | null>(null);
 	let todayTimerEntries = $state<TimerEntryResponse[]>([]);
 	let todayManualEntries = $state<ManualEntryResponse[]>([]);
 	let todayObservations = $state<ObservationResponse[]>([]);
@@ -66,9 +69,9 @@
 		if (timer) stoppingTimer = timer;
 	}
 
-	async function handleStopSave(id: number, description: string, location: string) {
+	async function handleStopSave(id: number, description: string, location: string, overrideDate: string | null) {
 		try {
-			await stopTimer(id, description, location);
+			await stopTimer(id, description, location, overrideDate);
 			stoppingTimer = null;
 			await loadTodayLog();
 		} catch (e: unknown) { console.error(e); }
@@ -101,6 +104,28 @@
 			await api.discardTimer(id);
 			await loadTodayLog();
 		} catch (e: unknown) { console.error(e); }
+	}
+
+	function handleEditTimer(id: number) {
+		const t = todayTimerEntries.find(x => x.id === id);
+		if (t) editingTimer = t;
+	}
+
+	function handleEditManual(id: number) {
+		const m = todayManualEntries.find(x => x.id === id);
+		if (m) editingManual = m;
+	}
+
+	async function handleEditSaved() {
+		editingTimer = null;
+		editingManual = null;
+		await loadTodayLog();
+	}
+
+	function handleEditDeleted() {
+		editingTimer = null;
+		editingManual = null;
+		loadTodayLog();
 	}
 
 	function handleManualCreated() {
@@ -210,6 +235,8 @@
 				observations={todayObservations}
 				onDeleteManual={handleDeleteManual}
 				onDeleteTimer={handleDeleteTimer}
+				onEditTimer={handleEditTimer}
+				onEditManual={handleEditManual}
 			/>
 		</div>
 	{/if}
@@ -223,4 +250,18 @@
 		onDiscard={handleDiscardFromDialog}
 		onCancel={() => stoppingTimer = null}
 	/>
+{/if}
+
+<!-- Edit modal — keyed so it re-mounts when switching between entries -->
+{#if (editingTimer || editingManual) && $activeSession}
+	{#key (editingTimer?.id ?? 't-none') + '/' + (editingManual?.id ?? 'm-none')}
+		<EditEntryModal
+			timerEntry={editingTimer}
+			manualEntry={editingManual}
+			sessionId={$activeSession.id}
+			onSaved={handleEditSaved}
+			onDeleted={handleEditDeleted}
+			onCancel={() => { editingTimer = null; editingManual = null; }}
+		/>
+	{/key}
 {/if}
