@@ -3,6 +3,7 @@
 	import * as d3 from 'd3';
 	import type { TimerEntryResponse, ManualEntryResponse } from '$lib/api/client';
 	import { timezone, normalizeAsUtc } from '$lib/stores/timezone';
+	import { shortDateLabel } from '$lib/utils/lateNight';
 
 	/**
 	 * Today's timeline as a Gantt-style box chart. Each completed entry renders
@@ -23,10 +24,14 @@
 		timerEntries = [],
 		manualEntries = [],
 		hasActiveTimer = false,
+		viewingToday = true,
+		selectedDate = '',
 	}: {
 		timerEntries: TimerEntryResponse[];
 		manualEntries: ManualEntryResponse[];
 		hasActiveTimer?: boolean;
+		viewingToday?: boolean;       // gates the "now" guide and live-end behavior
+		selectedDate?: string;        // for the header title when off-today
 	} = $props();
 
 	let container = $state<HTMLDivElement | null>(null);
@@ -209,14 +214,21 @@
 		MARGIN.top + laneCount * (BOX_HEIGHT + LANE_GAP) - LANE_GAP + MARGIN.bottom,
 	);
 
-	const nowHour = $derived(hourOfDay(new Date().toISOString(), $timezone));
+	// "Now" only matters when looking at today — on past days it would push the
+	// x-domain to a nonsensical wall-clock hour.
+	const nowHour = $derived(viewingToday ? hourOfDay(new Date().toISOString(), $timezone) : 0);
 
 	const xDomain = $derived.by<[number, number]>(() => {
 		if (events.length === 0) {
-			return [6, Math.max(12, nowHour + 0.5)];
+			return viewingToday
+				? [6, Math.max(12, nowHour + 0.5)]
+				: [6, 22]; // sensible fallback for an empty past day
 		}
 		const first = Math.min(...events.map((e) => e.startHour));
-		const last = Math.max(nowHour, ...events.map((e) => e.endHour));
+		// Only stretch toward "now" when viewing today; otherwise just hug the data.
+		const last = viewingToday
+			? Math.max(nowHour, ...events.map((e) => e.endHour))
+			: Math.max(...events.map((e) => e.endHour));
 		const pad = Math.max(0.25, (last - first) * 0.05);
 		return [Math.max(0, first - pad), Math.min(24, last + pad)];
 	});
@@ -318,13 +330,19 @@
 	role="presentation"
 >
 	<div class="mb-3 flex items-baseline justify-between gap-3">
-		<h2 class="text-lg font-semibold">Today's Timeline</h2>
+		<h2 class="text-lg font-semibold">
+			{viewingToday
+				? "Today's Timeline"
+				: `${selectedDate ? shortDateLabel(selectedDate) : ''} · Timeline`}
+		</h2>
 		<span
 			class="text-xs text-muted-foreground text-right transition-opacity duration-150"
 			class:opacity-0={!containerHovered}
 		>
 			{events.length === 0
-				? 'Hit play on a category to start filling this in'
+				? (viewingToday
+					? 'Hit play on a category to start filling this in'
+					: 'No entries logged on this day')
 				: `${fmtDuration(totalMinutes)} across ${events.length} entr${events.length === 1 ? 'y' : 'ies'} · click a box for details · edit a manual entry to set its start time`}
 		</span>
 	</div>
@@ -435,7 +453,7 @@
 					y={HEIGHT / 2 - 4}
 					text-anchor="middle"
 					class="fill-muted-foreground text-xs"
-				>No entries yet today</text>
+				>{viewingToday ? 'No entries yet today' : 'Nothing logged on this day'}</text>
 				<text
 					x={W / 2}
 					y={HEIGHT / 2 + 14}

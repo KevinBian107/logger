@@ -328,13 +328,16 @@
 			<div class="space-y-5">
 				<!-- Interactive timeline (only meaningful when viewing today;
 				     past-day views fall back to the static breakdown bar below) -->
-				{#if viewingToday}
-					<TodayTimeline
-						timerEntries={dailyActivity.timer_entries}
-						manualEntries={dailyActivity.manual_entries}
-						hasActiveTimer={$activeTimers.length > 0}
-					/>
-				{/if}
+				<!-- Timeline shows for any selected day, not just today. The
+				     "now" guide and live-extending behavior are gated inside
+				     the component to only render when viewing today. -->
+				<TodayTimeline
+					timerEntries={dailyActivity.timer_entries}
+					manualEntries={dailyActivity.manual_entries}
+					hasActiveTimer={$activeTimers.length > 0 && viewingToday}
+					viewingToday={viewingToday}
+					selectedDate={selectedDate}
+				/>
 
 				{#if dailyBreakdown.length > 0}
 					<section>
