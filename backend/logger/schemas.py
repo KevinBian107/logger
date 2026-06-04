@@ -262,6 +262,7 @@ class ManualEntryCreate(BaseModel):
     duration_minutes: int
     description: str | None = None
     location: str | None = None
+    start_time: str | None = None
 
 
 class ManualEntryUpdate(BaseModel):

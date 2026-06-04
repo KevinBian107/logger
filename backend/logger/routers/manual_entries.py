@@ -42,6 +42,7 @@ async def create_manual_entry(
             duration_minutes=data.duration_minutes,
             description=data.description,
             location=data.location,
+            start_time=data.start_time,
             db=db,
         )
         await db.commit()

@@ -21,6 +21,7 @@ async def create_manual_entry(
     description: str | None,
     location: str | None,
     db: AsyncSession,
+    start_time: str | None = None,
 ) -> ManualEntry:
     if duration_minutes < 1:
         raise ValueError("Duration must be at least 1 minute")
@@ -37,6 +38,8 @@ async def create_manual_entry(
         duration_minutes=duration_minutes,
         description=description,
         location=location,
+        # Empty string clears it; otherwise store the ISO as given.
+        start_time=start_time or None,
     )
     db.add(entry)
     await db.flush()

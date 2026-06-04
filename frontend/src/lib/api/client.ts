@@ -558,6 +558,7 @@ export const api = {
 		duration_minutes: number;
 		description?: string;
 		location?: string;
+		start_time?: string | null;
 	}) =>
 		request<ManualEntryResponse>('/manual-entries', {
 			method: 'POST',

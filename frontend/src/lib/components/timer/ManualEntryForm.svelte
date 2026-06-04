@@ -4,6 +4,7 @@
 	import LateNightDatePrompt from './LateNightDatePrompt.svelte';
 	import { formatLocalYMD, isLateNight, lateNightDateOptions } from '$lib/utils/lateNight';
 	import { manualEntryDraft, resetManualEntryDraft } from '$lib/stores/drafts';
+	import { timezone, localDateTimeToUtcIso } from '$lib/stores/timezone';
 	import { onMount } from 'svelte';
 
 	let {
@@ -24,6 +25,9 @@
 	let minutes = $state(0);
 	let description = $state('');
 	let location = $state('');
+	// Optional start time as HH:MM in the user's tz. '' = leave the entry's
+	// timeline position inferred from when it was logged.
+	let startTime = $state('');
 	let error = $state('');
 	let saving = $state(false);
 
@@ -40,13 +44,14 @@
 			minutes = d.minutes;
 			description = d.description;
 			location = d.location;
+			startTime = d.startTime;
 		});
 		unsub();
 	});
 
 	// Persist any local change back to the store so a tab-switch preserves it.
 	$effect(() => {
-		manualEntryDraft.set({ categoryId, date, hours, minutes, description, location });
+		manualEntryDraft.set({ categoryId, date, hours, minutes, description, location, startTime });
 	});
 
 	const totalMinutes = $derived(hours * 60 + minutes);
@@ -57,12 +62,20 @@
 		error = '';
 		saving = true;
 		try {
+			// Translate the optional HH:MM input into a UTC ISO start_time on the
+			// entry's date. Empty input → leave it unset (start inferred).
+			let startIso: string | undefined;
+			if (startTime) {
+				const [h, m] = startTime.split(':').map(Number);
+				startIso = localDateTimeToUtcIso(date, h || 0, m || 0, $timezone);
+			}
 			await api.createManualEntry({
 				category_id: categoryId,
 				date,
 				duration_minutes: totalMinutes,
 				description: description || undefined,
-				location: location || undefined
+				location: location || undefined,
+				start_time: startIso
 			});
 			// Reset form + clear the persisted draft (it was for this entry).
 			categoryId = null;
@@ -70,6 +83,7 @@
 			minutes = 0;
 			description = '';
 			location = '';
+			startTime = '';
 			// Re-default the date too — otherwise the local `date` would carry
 			// whatever the user picked into the next entry, including stale values.
 			date = isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date());
@@ -136,6 +150,33 @@
 			<span class="text-sm text-muted-foreground">m</span>
 			{#if totalMinutes > 0}
 				<span class="text-xs text-muted-foreground">= {totalMinutes} min</span>
+			{/if}
+		</div>
+	</div>
+
+	<div>
+		<label for="me-start" class="block text-sm font-medium text-muted-foreground">
+			Start time
+			<span class="ml-1 text-xs font-normal italic text-muted-foreground/70">
+				optional — leave blank to infer placement
+			</span>
+		</label>
+		<div class="mt-1 flex items-center gap-2">
+			<input
+				id="me-start"
+				type="time"
+				bind:value={startTime}
+				class="w-40 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+			/>
+			{#if startTime}
+				<button
+					type="button"
+					onclick={() => (startTime = '')}
+					class="text-xs text-muted-foreground hover:text-foreground"
+					title="Clear start time"
+				>
+					Clear
+				</button>
 			{/if}
 		</div>
 	</div>

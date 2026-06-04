@@ -15,6 +15,7 @@ export interface ManualEntryDraft {
 	minutes: number;
 	description: string;
 	location: string;
+	startTime: string; // HH:MM in the user's tz; '' = unset (start inferred)
 }
 
 export const EMPTY_MANUAL_ENTRY_DRAFT: ManualEntryDraft = {
@@ -24,6 +25,7 @@ export const EMPTY_MANUAL_ENTRY_DRAFT: ManualEntryDraft = {
 	minutes: 0,
 	description: '',
 	location: '',
+	startTime: '',
 };
 
 export const manualEntryDraft = writable<ManualEntryDraft>({ ...EMPTY_MANUAL_ENTRY_DRAFT });
