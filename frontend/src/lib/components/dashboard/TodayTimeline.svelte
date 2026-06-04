@@ -7,10 +7,17 @@
 
 	/**
 	 * Today's timeline as a Gantt-style box chart. Each completed entry renders
-	 * as a horizontal rectangle from its start time to its end time, color-coded
-	 * by family. Overlapping intervals stack into lanes.
+	 * as a horizontal rectangle anchored at its start time, with a LENGTH equal
+	 * to its logged duration, color-coded by family. Overlapping intervals stack
+	 * into lanes.
 	 *
-	 * - Timer entries: solid boxes spanning real start_time → end_time.
+	 * Every box is sized by `duration_minutes`, never by wall-clock span. This
+	 * matters for timers: a paused timer's real end_time − start_time includes
+	 * the paused gap, so drawing start→end would balloon the box far past the
+	 * actual logged time. We draw start → start+duration instead, so the box
+	 * length always reads as the time that was counted.
+	 *
+	 * - Timer entries: solid boxes from start_time, length = duration.
 	 * - Manual entries with a real start_time: solid boxes (same as timers).
 	 * - Manual entries with NO start_time: dashed-outline boxes positioned at
 	 *   the INFERRED slot (created_at − duration), since we only know when they
@@ -95,6 +102,19 @@
 		}
 	}
 
+	// Shift an ISO timestamp by a number of minutes, returning a UTC ISO string.
+	// Used to derive an entry's end instant from its start + duration so the
+	// box length and the tooltip's end clock always agree.
+	function addMinutesIso(iso: string, minutes: number): string {
+		try {
+			return new Date(
+				new Date(normalizeAsUtc(iso)).getTime() + minutes * 60000,
+			).toISOString();
+		} catch {
+			return iso;
+		}
+	}
+
 	function fmtClock(iso: string, tz: string): string {
 		try {
 			return new Date(normalizeAsUtc(iso)).toLocaleTimeString(undefined, {
@@ -123,12 +143,16 @@
 
 		for (const t of timerEntries) {
 			if (!t.end_time || !t.duration_minutes) continue;
+			// Anchor at the real start; size by duration (not wall-clock span),
+			// so paused timers don't render an oversized box. endIso is derived
+			// from start + duration so the tooltip's end clock matches the box.
+			const startHour = hourOfDay(t.start_time, tz);
 			out.push({
 				entryId: t.id,
-				startHour: hourOfDay(t.start_time, tz),
-				endHour: hourOfDay(t.end_time, tz),
+				startHour,
+				endHour: startHour + t.duration_minutes / 60,
 				startIso: t.start_time,
-				endIso: t.end_time,
+				endIso: addMinutesIso(t.start_time, t.duration_minutes),
 				duration: t.duration_minutes,
 				category: t.category_name || 'Untitled',
 				family: t.category_name,
@@ -151,12 +175,14 @@
 				startHour = hourOfDay(m.start_time!, tz);
 				endHour = startHour + m.duration_minutes / 60;
 				startIso = m.start_time!;
-				endIso = m.start_time!;
+				endIso = addMinutesIso(m.start_time!, m.duration_minutes);
 			} else {
+				// No real start: anchor the box's END at when it was logged
+				// (created_at) and extend backwards by the duration.
 				if (!m.created_at) continue;
 				endHour = hourOfDay(m.created_at, tz);
 				startHour = Math.max(0, endHour - m.duration_minutes / 60);
-				startIso = m.created_at;
+				startIso = addMinutesIso(m.created_at, -m.duration_minutes);
 				endIso = m.created_at;
 			}
 			out.push({

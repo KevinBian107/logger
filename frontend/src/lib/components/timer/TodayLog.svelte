@@ -49,7 +49,9 @@
 				category: m.category_name,
 				minutes: m.duration_minutes,
 				description: m.description,
-				time: formatTimeIn(tz, m.created_at),
+				// Show the start time the user logged for the entry; fall back to
+				// created_at only when no start_time was recorded.
+				time: formatTimeIn(tz, m.start_time || m.created_at),
 			});
 		}
 		for (const o of observations) {
