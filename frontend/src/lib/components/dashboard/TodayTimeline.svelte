@@ -225,8 +225,12 @@
 				: [6, 22]; // sensible fallback for an empty past day
 		}
 		const first = Math.min(...events.map((e) => e.startHour));
-		// Only stretch toward "now" when viewing today; otherwise just hug the data.
-		const last = viewingToday
+		// Hug the actual data: the right edge ends at the last entry's real end
+		// (start + duration). Only stretch toward "now" while a timer is live on
+		// today, so the running "now" guide stays visible; otherwise an idle gap
+		// between the last entry and the current time would pad dead space and
+		// shrink every box.
+		const last = viewingToday && hasActiveTimer
 			? Math.max(nowHour, ...events.map((e) => e.endHour))
 			: Math.max(...events.map((e) => e.endHour));
 		const pad = Math.max(0.25, (last - first) * 0.05);
