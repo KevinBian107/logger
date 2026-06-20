@@ -17,7 +17,11 @@
 	import TodayLog from '$lib/components/timer/TodayLog.svelte';
 	import EditEntryModal from '$lib/components/timer/EditEntryModal.svelte';
 	import DatePicker from '$lib/components/dashboard/DatePicker.svelte';
+	import ManualEntryModal from '$lib/components/timer/ManualEntryModal.svelte';
+	import BreakBanner from '$lib/components/dashboard/BreakBanner.svelte';
 	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import { viewDate } from '$lib/stores/viewDate';
+	import { get } from 'svelte/store';
 	import type { ManualEntryResponse } from '$lib/api/client';
 
 	const todayLabel = new Date().toLocaleDateString(undefined, {
@@ -35,8 +39,13 @@
 	// (today by default, or any past day picked via the calendar). The two are
 	// compared to render different copy and disable today-only affordances.
 	const today = formatLocalYMD(new Date());
-	let selectedDate = $state<string>(today);
+	// Initialise from the shared store so a date picked elsewhere (or before
+	// navigating away) is restored, then mirror local changes back to it.
+	let selectedDate = $state<string>(get(viewDate));
 	const viewingToday = $derived(selectedDate === today);
+	$effect(() => { viewDate.set(selectedDate); });
+
+	let showAddEntry = $state(false);
 
 	let dailyActivity = $state<DailyActivityResponse | null>(null);
 	let streak = $state<StreakResponse>({ current: 0, longest: 0 });
@@ -144,6 +153,11 @@
 		if (m) editingManual = m;
 	}
 
+	async function handleAddCreated() {
+		showAddEntry = false;
+		await loadDashboard();
+	}
+
 	async function handleEditSaved() {
 		editingTimer = null;
 		editingManual = null;
@@ -233,6 +247,16 @@
 		</div>
 		<div class="flex flex-wrap items-center gap-2">
 			<DatePicker bind:value={selectedDate} maxDate={today} />
+			{#if $activeSession}
+				<button
+					onclick={() => (showAddEntry = true)}
+					class="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:border-primary/40 hover:text-primary"
+					title={viewingToday ? 'Add a manual entry for today' : `Add a manual entry for ${shortDateLabel(selectedDate)}`}
+				>
+					<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+					Add entry
+				</button>
+			{/if}
 			{#if !viewingToday}
 				<button
 					onclick={() => (selectedDate = today)}
@@ -315,6 +339,11 @@
 			</div>
 		</div>
 
+		<!-- Break / rest day banner -->
+		{#if dailyActivity?.is_break}
+			<BreakBanner label={dailyActivity.break_label} date={selectedDate} {viewingToday} />
+		{/if}
+
 		<!-- Active timers -->
 		<ActiveTimers
 			timers={$activeTimers}
@@ -385,8 +414,15 @@
 					</div>
 					{#if entryCount === 0}
 						<div class="rounded-xl border border-dashed border-border bg-muted/30 p-8 text-center">
-							<p class="text-sm font-medium">Nothing logged today yet</p>
-							<p class="mt-1 text-xs text-muted-foreground">Pick a category above and hit play, or use the <a href="/timer" class="text-primary hover:underline">Timer page</a> for manual entry.</p>
+							<p class="text-sm font-medium">{viewingToday ? 'Nothing logged today yet' : `Nothing logged on ${shortDateLabel(selectedDate)}`}</p>
+							<p class="mt-1 text-xs text-muted-foreground">
+								{#if viewingToday}
+									Pick a category above and hit play, or
+								{:else}
+									Forgot to log something that day?
+								{/if}
+								<button onclick={() => (showAddEntry = true)} class="text-primary hover:underline">add a manual entry</button>.
+							</p>
 						</div>
 					{:else}
 						<TodayLog
@@ -433,6 +469,15 @@
 		onSave={handleStopSave}
 		onDiscard={handleDiscard}
 		onCancel={() => stoppingTimer = null}
+	/>
+{/if}
+
+{#if showAddEntry && $activeSession}
+	<ManualEntryModal
+		{categories}
+		presetDate={selectedDate}
+		onCreated={handleAddCreated}
+		onClose={() => (showAddEntry = false)}
 	/>
 {/if}
 

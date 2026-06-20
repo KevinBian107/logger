@@ -153,11 +153,20 @@ export interface DailyActivityResponse {
 	timer_entries: TimerEntryResponse[];
 	manual_entries: ManualEntryResponse[];
 	observations: ObservationResponse[];
+	is_break: boolean;
+	break_label: string | null;
 }
 
 export interface StreakResponse {
 	current: number;
 	longest: number;
+}
+
+export interface BreakDayResponse {
+	id: number;
+	date: string;
+	label: string | null;
+	created_at: string | null;
 }
 
 export interface CategoryGroupResponse {
@@ -590,6 +599,31 @@ export const api = {
 	getDailyActivity: (date: string) =>
 		request<DailyActivityResponse>(`/daily/${date}`),
 	getStreak: () => request<StreakResponse>('/daily/streak/current'),
+
+	// Breaks (rest / vacation days)
+	getBreaks: (start?: string, end?: string) => {
+		const params = new URLSearchParams();
+		if (start) params.set('start', start);
+		if (end) params.set('end', end);
+		const qs = params.toString();
+		return request<BreakDayResponse[]>(`/breaks${qs ? `?${qs}` : ''}`);
+	},
+	createBreaks: (startDate: string, endDate?: string, label?: string) =>
+		request<BreakDayResponse[]>('/breaks', {
+			method: 'POST',
+			body: JSON.stringify({
+				start_date: startDate,
+				end_date: endDate || null,
+				label: label || null,
+			}),
+		}),
+	deleteBreak: (date: string) =>
+		request<{ deleted: number }>(`/breaks/${date}`, { method: 'DELETE' }),
+	deleteBreakRange: (start: string, end?: string) => {
+		const params = new URLSearchParams({ start });
+		if (end) params.set('end', end);
+		return request<{ deleted: number }>(`/breaks?${params.toString()}`, { method: 'DELETE' });
+	},
 
 	// Sessions (create)
 	createSession: (data: {

@@ -11,8 +11,14 @@
 	import ManualEntryForm from '$lib/components/timer/ManualEntryForm.svelte';
 	import TodayLog from '$lib/components/timer/TodayLog.svelte';
 	import EditEntryModal from '$lib/components/timer/EditEntryModal.svelte';
+	import BreakPanel from '$lib/components/timer/BreakPanel.svelte';
+	import DatePicker from '$lib/components/dashboard/DatePicker.svelte';
+	import BreakBanner from '$lib/components/dashboard/BreakBanner.svelte';
+	import { viewDate } from '$lib/stores/viewDate';
+	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import { get } from 'svelte/store';
 
-	let tab = $state<'timer' | 'manual'>('timer');
+	let tab = $state<'timer' | 'manual' | 'break'>('timer');
 	let categories = $state<CategoryResponse[]>([]);
 	let selectedCategoryId = $state<number | null>(null);
 	let startingTimer = $state(false);
@@ -22,10 +28,21 @@
 	let todayTimerEntries = $state<TimerEntryResponse[]>([]);
 	let todayManualEntries = $state<ManualEntryResponse[]>([]);
 	let todayObservations = $state<ObservationResponse[]>([]);
+	let dayIsBreak = $state(false);
+	let breakLabel = $state<string | null>(null);
 
-	// Use local date, not UTC
-	const now = new Date();
-	const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+	// Shared selected day (survives navigation; see viewDate store). `today` is
+	// captured once for comparison.
+	const today = formatLocalYMD(new Date());
+	let selectedDate = $state<string>(get(viewDate));
+	const viewingToday = $derived(selectedDate === today);
+	$effect(() => { viewDate.set(selectedDate); });
+
+	// Reload the log whenever the viewed day changes.
+	$effect(() => {
+		selectedDate;
+		loadLog();
+	});
 
 	async function loadCategories() {
 		const session = $activeSession;
@@ -35,12 +52,14 @@
 		} catch { /* */ }
 	}
 
-	async function loadTodayLog() {
+	async function loadLog() {
 		try {
-			const data = await api.getDailyActivity(today);
+			const data = await api.getDailyActivity(selectedDate);
 			todayTimerEntries = data.timer_entries;
 			todayManualEntries = data.manual_entries;
 			todayObservations = data.observations;
+			dayIsBreak = data.is_break;
+			breakLabel = data.break_label;
 		} catch { /* */ }
 	}
 
@@ -73,7 +92,7 @@
 		try {
 			await stopTimer(id, description, location, overrideDate);
 			stoppingTimer = null;
-			await loadTodayLog();
+			await loadLog();
 		} catch (e: unknown) { console.error(e); }
 	}
 
@@ -88,21 +107,21 @@
 			await api.discardTimer(id);
 			stoppingTimer = null;
 			await loadActiveTimers();
-			await loadTodayLog();
+			await loadLog();
 		} catch (e: unknown) { console.error(e); }
 	}
 
 	async function handleDeleteManual(id: number) {
 		try {
 			await api.deleteManualEntry(id);
-			await loadTodayLog();
+			await loadLog();
 		} catch (e: unknown) { console.error(e); }
 	}
 
 	async function handleDeleteTimer(id: number) {
 		try {
 			await api.discardTimer(id);
-			await loadTodayLog();
+			await loadLog();
 		} catch (e: unknown) { console.error(e); }
 	}
 
@@ -119,22 +138,22 @@
 	async function handleEditSaved() {
 		editingTimer = null;
 		editingManual = null;
-		await loadTodayLog();
+		await loadLog();
 	}
 
 	function handleEditDeleted() {
 		editingTimer = null;
 		editingManual = null;
-		loadTodayLog();
+		loadLog();
 	}
 
 	function handleManualCreated() {
-		loadTodayLog();
+		loadLog();
 	}
 
 	onMount(() => {
 		loadCategories();
-		loadTodayLog();
+		loadLog();
 		startPolling();
 	});
 
@@ -144,9 +163,26 @@
 </script>
 
 <div class="space-y-6">
-	<div>
-		<h1 class="text-2xl font-bold">Timer</h1>
-		<p class="mt-1 text-sm text-muted-foreground">Start timers, add manual entries, view today's log.</p>
+	<div class="flex flex-wrap items-end justify-between gap-3">
+		<div>
+			<h1 class="text-2xl font-bold">Timer</h1>
+			<p class="mt-1 text-sm text-muted-foreground">Start timers, add manual entries, mark breaks.</p>
+		</div>
+		{#if $activeSession}
+			<div class="flex flex-wrap items-center gap-2">
+				<DatePicker bind:value={selectedDate} maxDate={today} />
+				{#if !viewingToday}
+					<button
+						onclick={() => (selectedDate = today)}
+						class="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+						title="Jump back to today"
+					>
+						<svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l-7 7 7 7M2 12h20"/></svg>
+						Back to today
+					</button>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	{#if !$activeSession}
@@ -172,9 +208,22 @@
 			>
 				Manual Entry
 			</button>
+			<button
+				onclick={() => tab = 'break'}
+				class="flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors {
+					tab === 'break' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+				}"
+			>
+				Break
+			</button>
 		</div>
 
 		{#if tab === 'timer'}
+			{#if !viewingToday}
+				<p class="rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+					Live timers always run for <span class="font-medium">now</span>. To log time for {shortDateLabel(selectedDate)}, use <button class="text-primary hover:underline" onclick={() => (tab = 'manual')}>Manual Entry</button>.
+				</p>
+			{/if}
 			<!-- Start new timer -->
 			<div class="rounded-lg border border-border bg-card p-4">
 				<div class="flex items-end gap-3">
@@ -219,16 +268,29 @@
 					</div>
 				</div>
 			{/if}
-		{:else}
-			<!-- Manual entry form -->
+		{:else if tab === 'manual'}
+			<!-- Manual entry form. When viewing a past day, default the entry to it;
+			     on today keep the late-night Today/Yesterday prompt behavior. -->
 			<div class="rounded-lg border border-border bg-card p-5">
-				<ManualEntryForm {categories} onCreated={handleManualCreated} />
+				<ManualEntryForm
+					{categories}
+					presetDate={viewingToday ? undefined : selectedDate}
+					onCreated={handleManualCreated}
+				/>
 			</div>
+		{:else}
+			<!-- Break panel -->
+			<BreakPanel presetDate={selectedDate} onChanged={loadLog} />
 		{/if}
 
-		<!-- Today's log -->
+		<!-- Break banner for the viewed day -->
+		{#if dayIsBreak}
+			<BreakBanner label={breakLabel} date={selectedDate} {viewingToday} />
+		{/if}
+
+		<!-- Day log -->
 		<div>
-			<h2 class="mb-3 text-lg font-semibold">Today's Log</h2>
+			<h2 class="mb-3 text-lg font-semibold">{viewingToday ? "Today's Log" : `${shortDateLabel(selectedDate)} · Log`}</h2>
 			<TodayLog
 				timerEntries={todayTimerEntries}
 				manualEntries={todayManualEntries}

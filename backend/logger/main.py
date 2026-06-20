@@ -11,7 +11,7 @@ from starlette.responses import FileResponse
 
 from logger.config import CORS_ORIGINS, IS_PACKAGED
 from logger.database import init_db
-from logger.routers import sessions, categories, import_csv, settings, timers, manual_entries, daily, groups, analytics, chat, projects, family_rules
+from logger.routers import sessions, categories, import_csv, settings, timers, manual_entries, daily, groups, analytics, chat, projects, family_rules, breaks
 
 
 @asynccontextmanager
@@ -42,6 +42,7 @@ app.include_router(analytics.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(family_rules.router, prefix="/api")
+app.include_router(breaks.router, prefix="/api")
 
 
 @app.get("/api/health")

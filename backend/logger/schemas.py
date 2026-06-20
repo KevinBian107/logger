@@ -300,11 +300,32 @@ class DailyActivityResponse(BaseModel):
     timer_entries: list[TimerEntryResponse] = []
     manual_entries: list[ManualEntryResponse] = []
     observations: list[ObservationResponse] = []
+    # Break marker for this date (neutral full-day rest/vacation label).
+    is_break: bool = False
+    break_label: str | None = None
 
 
 class StreakResponse(BaseModel):
     current: int
     longest: int
+
+
+# ── Break Days ───────────────────────────────────────────
+
+class BreakDayCreate(BaseModel):
+    start_date: str
+    # Defaults to start_date (single day) when omitted.
+    end_date: str | None = None
+    label: str | None = None
+
+
+class BreakDayResponse(BaseModel):
+    id: int
+    date: str
+    label: str | None = None
+    created_at: str | None = None
+
+    model_config = {"from_attributes": True}
 
 
 # ── Groups (top-level semantic bucket) ──────────────────

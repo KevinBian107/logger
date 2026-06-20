@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from logger.database import get_db
 from logger.models import (
     Session, DailyRecord, Observation, TimerEntry, ManualEntry, Category,
+    BreakDay,
 )
 from logger.schemas import (
     DailyActivityResponse, TimerEntryResponse, ManualEntryResponse,
@@ -106,12 +107,20 @@ async def get_daily_activity(date: str, db: AsyncSession = Depends(get_db)):
             created_at=m.created_at,
         ))
 
+    # Break marker (global, not session-scoped).
+    break_result = await db.execute(
+        select(BreakDay).where(BreakDay.date == date)
+    )
+    break_day = break_result.scalar_one_or_none()
+
     return DailyActivityResponse(
         date=date,
         total_minutes=total_minutes,
         timer_entries=timer_entries,
         manual_entries=manual_entries,
         observations=observations,
+        is_break=break_day is not None,
+        break_label=break_day.label if break_day else None,
     )
 
 
@@ -130,39 +139,53 @@ async def get_streak(db: AsyncSession = Depends(get_db)):
         )
         .order_by(DailyRecord.date.desc())
     )
-    dates = [date_type.fromisoformat(row[0]) for row in result.all()]
+    worked = {date_type.fromisoformat(row[0]) for row in result.all()}
 
-    if not dates:
+    # Break days bridge the streak: they neither count toward it nor break it.
+    # A run of work days separated only by breaks stays a single streak.
+    break_result = await db.execute(select(BreakDay.date))
+    breaks = {date_type.fromisoformat(row[0]) for row in break_result.all()}
+
+    if not worked:
         return StreakResponse(current=0, longest=0)
 
-    # Current streak: consecutive days walking back from today
+    one_day = timedelta(days=1)
+
+    def walk_back(start: date_type) -> int:
+        """Walk backwards counting work days, stepping over break days, until a
+        day that is neither worked nor a break (a real gap) is hit."""
+        count = 0
+        d = start
+        while True:
+            if d in worked:
+                count += 1
+                d -= one_day
+            elif d in breaks:
+                d -= one_day  # bridge — no increment
+            else:
+                break
+        return count
+
     today = date_type.today()
-    current = 0
-    check_date = today
-    date_set = set(dates)
+    current = walk_back(today)
+    # Grace: today may not be logged yet. If today is a real gap, count the
+    # streak ending yesterday instead (matches prior behavior, break-aware).
+    if current == 0 and today not in worked and today not in breaks:
+        current = walk_back(today - one_day)
 
-    while check_date in date_set:
-        current += 1
-        check_date -= timedelta(days=1)
-
-    # If today has no entry but yesterday did, check from yesterday
-    if current == 0:
-        check_date = today - timedelta(days=1)
-        while check_date in date_set:
-            current += 1
-            check_date -= timedelta(days=1)
-
-    # Longest streak across all dates
-    sorted_dates = sorted(dates)
+    # Longest streak across all history, bridging breaks. Walk calendar-contiguous
+    # runs over (worked ∪ breaks) and count only the work days within each run.
+    relevant = sorted(worked | breaks)
     longest = 0
-    streak = 1
-    for i in range(1, len(sorted_dates)):
-        if sorted_dates[i] - sorted_dates[i - 1] == timedelta(days=1):
-            streak += 1
+    run_worked = 0
+    prev: date_type | None = None
+    for d in relevant:
+        if prev is not None and d - prev == one_day:
+            run_worked += 1 if d in worked else 0
         else:
-            longest = max(longest, streak)
-            streak = 1
-    longest = max(longest, streak)
+            run_worked = 1 if d in worked else 0
+        longest = max(longest, run_worked)
+        prev = d
 
     return StreakResponse(current=current, longest=longest)
 

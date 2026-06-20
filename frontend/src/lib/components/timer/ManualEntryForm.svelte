@@ -9,18 +9,26 @@
 
 	let {
 		categories,
-		onCreated
+		onCreated,
+		// When set (e.g. the dashboard "Add entry" modal for a viewed day), the
+		// form defaults to this date instead of today/yesterday, and the late-night
+		// Today/Yesterday prompt is suppressed (the user already chose the day).
+		presetDate = undefined
 	}: {
 		categories: CategoryResponse[];
 		onCreated: () => void;
+		presetDate?: string;
 	} = $props();
+
+	function defaultDate(): string {
+		if (presetDate) return presetDate;
+		return isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date());
+	}
 
 	// Local copies of the draft fields. We read once on mount and write back
 	// to the store via $effect so the draft survives page navigation.
 	let categoryId = $state<number | null>(null);
-	let date = $state(
-		isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date())
-	);
+	let date = $state(defaultDate());
 	let hours = $state(0);
 	let minutes = $state(0);
 	let description = $state('');
@@ -86,7 +94,7 @@
 			startTime = '';
 			// Re-default the date too — otherwise the local `date` would carry
 			// whatever the user picked into the next entry, including stale values.
-			date = isLateNight() ? lateNightDateOptions().yesterday : formatLocalYMD(new Date());
+			date = defaultDate();
 			resetManualEntryDraft();
 			onCreated();
 		} catch (e: unknown) {
@@ -101,7 +109,9 @@
 		<div class="rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-600">{error}</div>
 	{/if}
 
-	<LateNightDatePrompt bind:value={date} />
+	{#if !presetDate}
+		<LateNightDatePrompt bind:value={date} />
+	{/if}
 
 	<div class="grid grid-cols-2 gap-4">
 		<div>

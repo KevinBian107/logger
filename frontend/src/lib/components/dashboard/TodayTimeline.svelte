@@ -484,12 +484,6 @@
 					text-anchor="middle"
 					class="fill-muted-foreground text-xs"
 				>{viewingToday ? 'No entries yet today' : 'Nothing logged on this day'}</text>
-				<text
-					x={W / 2}
-					y={HEIGHT / 2 + 14}
-					text-anchor="middle"
-					class="fill-muted-foreground/60 text-[10px]"
-				>Each entry becomes a colored box spanning its start → end time.</text>
 			{/if}
 		</svg>
 

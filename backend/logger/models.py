@@ -195,6 +195,27 @@ class ManualEntry(Base):
     )
 
 
+class BreakDay(Base):
+    """A rest / vacation / break day.
+
+    Global (not session-scoped): a break is a personal day off independent of
+    whichever academic session is active. Marking a day as a break does NOT add
+    any time; it is a neutral marker that (1) renders as a full-day labeled block
+    in the UI and (2) bridges the activity streak — work days on either side of a
+    break stay connected, so taking a break never breaks your streak.
+    """
+    __tablename__ = "break_days"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Text, nullable=False, unique=True)  # YYYY-MM-DD
+    label = Column(Text)                               # e.g. "Vacation", "Sick", "Rest"
+    created_at = Column(Text, server_default=text("(datetime('now'))"))
+
+    __table_args__ = (
+        Index("idx_break_days_date", "date"),
+    )
+
+
 class AIDescription(Base):
     __tablename__ = "ai_descriptions"
 
