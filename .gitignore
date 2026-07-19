@@ -4,6 +4,7 @@ sessions/
 .claude/
 propel/
 /data/
+tmp/
 
 # Database
 logger.db
