@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.database import get_db
-from logger.models import Session, Category
+from logger.models import Session, Category, PlanItem
 from logger.schemas import TimerStartRequest, TimerStopRequest, TimerEntryResponse, TimerEntryUpdate
 from logger.services import timer_service
 
@@ -11,6 +11,7 @@ router = APIRouter(prefix="/timers", tags=["timers"])
 
 async def _timer_response(timer, db: AsyncSession) -> TimerEntryResponse:
     cat = await db.get(Category, timer.category_id)
+    plan_item = await db.get(PlanItem, timer.plan_item_id) if timer.plan_item_id else None
     return TimerEntryResponse(
         id=timer.id,
         session_id=timer.session_id,
@@ -26,6 +27,8 @@ async def _timer_response(timer, db: AsyncSession) -> TimerEntryResponse:
         is_paused=timer.is_paused,
         description=timer.description,
         location=timer.location,
+        plan_item_id=timer.plan_item_id,
+        plan_item_title=plan_item.title if plan_item else None,
     )
 
 
@@ -49,7 +52,10 @@ async def start_timer(data: TimerStartRequest, db: AsyncSession = Depends(get_db
     if not cat or cat.session_id != session.id:
         raise HTTPException(status_code=400, detail="Category not in active session")
 
-    timer = await timer_service.start_timer(session.id, data.category_id, db)
+    try:
+        timer = await timer_service.start_timer(session.id, data.category_id, db, plan_item_id=data.plan_item_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     await db.commit()
     return await _timer_response(timer, db)
 

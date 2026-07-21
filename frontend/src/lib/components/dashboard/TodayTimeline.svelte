@@ -4,6 +4,7 @@
 	import type { TimerEntryResponse, ManualEntryResponse } from '$lib/api/client';
 	import { timezone, normalizeAsUtc } from '$lib/stores/timezone';
 	import { shortDateLabel } from '$lib/utils/lateNight';
+	import { colorForCategory } from '$lib/utils/chart';
 
 	/**
 	 * Today's timeline as a Gantt-style box chart. Each completed entry renders
@@ -66,21 +67,6 @@
 		color: string;
 		lane: number;
 	};
-
-	const PALETTE = [
-		'#6366F1', '#10B981', '#F59E0B', '#EF4444',
-		'#A855F7', '#06B6D4', '#EC4899', '#84CC16',
-		'#3B82F6', '#F97316', '#14B8A6', '#D946EF',
-	];
-
-	function colorFor(key: string | null | undefined): string {
-		const k = (key || '·').trim();
-		let h = 0;
-		for (let i = 0; i < k.length; i++) {
-			h = ((h << 5) - h + k.charCodeAt(i)) | 0;
-		}
-		return PALETTE[Math.abs(h) % PALETTE.length];
-	}
 
 	function hourOfDay(iso: string, tz: string): number {
 		try {
@@ -160,7 +146,7 @@
 				location: t.location,
 				kind: 'timer',
 				inferredStart: false,
-				color: colorFor(t.category_name),
+				color: colorForCategory(t.category_name),
 				lane: 0,
 			});
 		}
@@ -198,7 +184,7 @@
 				location: m.location,
 				kind: 'manual',
 				inferredStart: !hasStart,
-				color: colorFor(m.category_name),
+				color: colorForCategory(m.category_name),
 				lane: 0,
 			});
 		}

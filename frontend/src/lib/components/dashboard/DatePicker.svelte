@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import { api } from '$lib/api/client';
 
 	// Bound YYYY-MM-DD string. Parent owns it.
 	let {
@@ -60,6 +61,26 @@
 			year: 'numeric',
 		})
 	);
+
+	// Break days visible in the current month grid, keyed by YYYY-MM-DD → label
+	// (label may be null for an unlabeled break). Re-fetched whenever the popover
+	// is open and the visible month changes — closed, it's not worth the request.
+	let breaksByDate = $state<Map<string, string | null>>(new Map());
+
+	$effect(() => {
+		if (!open) return;
+		const c = cells;
+		const start = c[0]?.ymd;
+		const end = c[c.length - 1]?.ymd;
+		if (!start || !end) return;
+		api.getBreaks(start, end)
+			.then((rows) => {
+				const m = new Map<string, string | null>();
+				for (const b of rows) m.set(b.date, b.label);
+				breaksByDate = m;
+			})
+			.catch(() => {});
+	});
 
 	function prevMonth() {
 		if (viewMonth === 0) {
@@ -160,21 +181,28 @@
 			<!-- Day grid -->
 			<div class="grid grid-cols-7 gap-0.5 px-2 pb-2 pt-1">
 				{#each cells as c}
+					{@const isBreak = breaksByDate.has(c.ymd)}
 					<button
 						type="button"
 						onclick={() => pick(c.ymd, c.future)}
 						disabled={c.future}
-						class="aspect-square w-full rounded-md text-xs transition-colors
+						title={isBreak ? (breaksByDate.get(c.ymd) || 'Break') : undefined}
+						class="relative aspect-square w-full rounded-md text-xs transition-colors
 							{c.ymd === value
 								? 'bg-primary text-primary-foreground font-semibold'
-								: c.ymd === todayYMD
-									? 'bg-primary/10 font-semibold text-primary hover:bg-primary/20'
-									: c.inMonth
-										? 'text-foreground hover:bg-muted'
-										: 'text-muted-foreground/40 hover:bg-muted/50'}
+								: isBreak
+									? 'bg-amber-500/15 font-medium text-amber-700 hover:bg-amber-500/25 dark:text-amber-400'
+									: c.ymd === todayYMD
+										? 'bg-primary/10 font-semibold text-primary hover:bg-primary/20'
+										: c.inMonth
+											? 'text-foreground hover:bg-muted'
+											: 'text-muted-foreground/40 hover:bg-muted/50'}
 							{c.future ? 'cursor-not-allowed opacity-30 hover:bg-transparent' : ''}"
 					>
 						{c.day}
+						{#if isBreak}
+							<span class="pointer-events-none absolute -top-0.5 -right-0.5 text-[9px] leading-none">🌴</span>
+						{/if}
 					</button>
 				{/each}
 			</div>

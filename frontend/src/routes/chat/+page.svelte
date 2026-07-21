@@ -52,7 +52,7 @@
 	}
 </script>
 
-<div class="flex h-full flex-col -m-6">
+<div class="flex h-full flex-col">
 	<!-- Header -->
 	<div class="flex items-center justify-between border-b border-border px-6 py-3">
 		<div class="flex items-center gap-3">

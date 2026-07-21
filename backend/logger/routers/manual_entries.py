@@ -3,7 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from logger.database import get_db
-from logger.models import Session, ManualEntry, Category
+from logger.models import Session, ManualEntry, Category, PlanItem
 from logger.schemas import ManualEntryCreate, ManualEntryResponse, ManualEntryUpdate
 from logger.services import manual_entry_service
 
@@ -12,6 +12,7 @@ router = APIRouter(prefix="/manual-entries", tags=["manual-entries"])
 
 async def _entry_response(entry: ManualEntry, db: AsyncSession) -> ManualEntryResponse:
     cat = await db.get(Category, entry.category_id)
+    plan_item = await db.get(PlanItem, entry.plan_item_id) if entry.plan_item_id else None
     return ManualEntryResponse(
         id=entry.id,
         session_id=entry.session_id,
@@ -23,6 +24,8 @@ async def _entry_response(entry: ManualEntry, db: AsyncSession) -> ManualEntryRe
         location=entry.location,
         start_time=entry.start_time,
         created_at=entry.created_at,
+        plan_item_id=entry.plan_item_id,
+        plan_item_title=plan_item.title if plan_item else None,
     )
 
 
@@ -43,6 +46,7 @@ async def create_manual_entry(
             description=data.description,
             location=data.location,
             start_time=data.start_time,
+            plan_item_id=data.plan_item_id,
             db=db,
         )
         await db.commit()

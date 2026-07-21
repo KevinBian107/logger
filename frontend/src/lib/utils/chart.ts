@@ -6,6 +6,24 @@ export const PALETTE = [
 	'#A855F7', '#D946EF', '#84CC16', '#0EA5E9', '#22C55E',
 ];
 
+// Deterministic hash-based palette for category/family names, shared by the
+// Dashboard breakdown bar, Today's Timeline, and the Planner so the same
+// category always renders the same color everywhere.
+const CATEGORY_PALETTE = [
+	'#6366F1', '#10B981', '#F59E0B', '#EF4444',
+	'#A855F7', '#06B6D4', '#EC4899', '#84CC16',
+	'#3B82F6', '#F97316', '#14B8A6', '#D946EF',
+];
+
+export function colorForCategory(name: string | null | undefined): string {
+	const k = (name || '·').trim();
+	let h = 0;
+	for (let i = 0; i < k.length; i++) {
+		h = ((h << 5) - h + k.charCodeAt(i)) | 0;
+	}
+	return CATEGORY_PALETTE[Math.abs(h) % CATEGORY_PALETTE.length];
+}
+
 export function formatHoursMinutes(minutes: number): string {
 	const h = Math.floor(minutes / 60);
 	const m = minutes % 60;

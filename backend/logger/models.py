@@ -163,6 +163,10 @@ class TimerEntry(Base):
     is_paused = Column(Boolean, default=False)
     description = Column(Text)
     location = Column(Text)
+    # Set when this timer was started from the Planner ("start what has been
+    # planned"). NULL for ordinary timers. SET NULL on plan deletion — the
+    # logged time is real and stays, it just loses its plan attribution.
+    plan_item_id = Column(Integer, ForeignKey("plan_items.id", ondelete="SET NULL"))
     created_at = Column(Text, server_default=text("(datetime('now'))"))
     updated_at = Column(Text, server_default=text("(datetime('now'))"))
 
@@ -170,6 +174,7 @@ class TimerEntry(Base):
         Index("idx_timer_active", "is_active", sqlite_where=text("is_active = 1")),
         Index("idx_timer_date", "date"),
         Index("idx_timer_category", "category_id"),
+        Index("idx_timer_plan_item", "plan_item_id"),
     )
 
 
@@ -187,11 +192,46 @@ class ManualEntry(Base):
     # entry; start_time is when the work began. NULL = unknown (legacy / not yet
     # placed on the timeline). Set by dragging the entry on the Today Timeline.
     start_time = Column(Text)
+    # Set when this entry was logged to close out a Planner item. NULL for
+    # ordinary manual entries. SET NULL on plan deletion.
+    plan_item_id = Column(Integer, ForeignKey("plan_items.id", ondelete="SET NULL"))
     created_at = Column(Text, server_default=text("(datetime('now'))"))
 
     __table_args__ = (
         Index("idx_manual_date", "date"),
         Index("idx_manual_category", "category_id"),
+        Index("idx_manual_plan_item", "plan_item_id"),
+    )
+
+
+class PlanItem(Base):
+    """A planner itinerary item — a task scheduled for one or more future (or
+    past) days, optionally with a specific time-of-day when it spans a single
+    day. Starting a timer or logging a manual entry against a plan item links
+    that entry back here (TimerEntry.plan_item_id / ManualEntry.plan_item_id)
+    without marking the plan complete — a multi-day plan is expected to
+    accumulate several logged sessions before the user explicitly marks it
+    done (see planner_service.update_item)."""
+    __tablename__ = "plan_items"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(Text, nullable=False)
+    notes = Column(Text)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    start_date = Column(Text, nullable=False)   # YYYY-MM-DD
+    end_date = Column(Text, nullable=False)     # YYYY-MM-DD; == start_date for single-day items
+    # "HH:MM", 24h. Only meaningful (and only ever set) while start_date == end_date —
+    # cleared whenever the item spans more than one day.
+    start_time = Column(Text)
+    end_time = Column(Text)
+    status = Column(Text, nullable=False, default="planned")  # "planned" | "done"
+    importance = Column(Text)  # "low" | "medium" | "high" | NULL (unset)
+    created_at = Column(Text, server_default=text("(datetime('now'))"))
+    updated_at = Column(Text, server_default=text("(datetime('now'))"))
+
+    __table_args__ = (
+        Index("idx_plan_items_range", "start_date", "end_date"),
+        Index("idx_plan_items_category", "category_id"),
     )
 
 

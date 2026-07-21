@@ -19,7 +19,9 @@
 	import DatePicker from '$lib/components/dashboard/DatePicker.svelte';
 	import ManualEntryModal from '$lib/components/timer/ManualEntryModal.svelte';
 	import BreakBanner from '$lib/components/dashboard/BreakBanner.svelte';
+	import BreakModal from '$lib/components/dashboard/BreakModal.svelte';
 	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import { colorForCategory } from '$lib/utils/chart';
 	import { viewDate } from '$lib/stores/viewDate';
 	import { get } from 'svelte/store';
 	import type { ManualEntryResponse } from '$lib/api/client';
@@ -46,6 +48,7 @@
 	$effect(() => { viewDate.set(selectedDate); });
 
 	let showAddEntry = $state(false);
+	let showAddBreak = $state(false);
 
 	let dailyActivity = $state<DailyActivityResponse | null>(null);
 	let streak = $state<StreakResponse>({ current: 0, longest: 0 });
@@ -121,9 +124,13 @@
 		if (timer) stoppingTimer = timer;
 	}
 
-	async function handleStopSave(id: number, description: string, location: string, overrideDate: string | null) {
+	async function handleStopSave(id: number, description: string, location: string, overrideDate: string | null, markComplete: boolean) {
 		try {
+			const planItemId = stoppingTimer?.plan_item_id;
 			await stopTimer(id, description, location, overrideDate);
+			if (markComplete && planItemId) {
+				await api.updatePlanItem(planItemId, { status: 'done' });
+			}
 			stoppingTimer = null;
 			await loadDashboard();
 		} catch (e: unknown) { console.error(e); }
@@ -220,20 +227,6 @@
 			.sort((a, b) => b.minutes - a.minutes);
 	});
 
-	function colorForCategory(name: string): string {
-		// Same stable-hash palette as TodayTimeline so the bar matches the chart.
-		const PALETTE = [
-			'#6366F1', '#10B981', '#F59E0B', '#EF4444',
-			'#A855F7', '#06B6D4', '#EC4899', '#84CC16',
-			'#3B82F6', '#F97316', '#14B8A6', '#D946EF',
-		];
-		const k = (name || '·').trim();
-		let h = 0;
-		for (let i = 0; i < k.length; i++) {
-			h = ((h << 5) - h + k.charCodeAt(i)) | 0;
-		}
-		return PALETTE[Math.abs(h) % PALETTE.length];
-	}
 </script>
 
 <div class="space-y-6">
@@ -255,6 +248,14 @@
 				>
 					<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
 					Add entry
+				</button>
+				<button
+					onclick={() => (showAddBreak = true)}
+					class="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium transition-colors hover:border-amber-400/60 hover:text-amber-600 dark:hover:text-amber-400"
+					title="Mark a break / rest day"
+				>
+					<span class="text-sm leading-none">🌴</span>
+					Add break
 				</button>
 			{/if}
 			{#if !viewingToday}
@@ -478,6 +479,14 @@
 		presetDate={selectedDate}
 		onCreated={handleAddCreated}
 		onClose={() => (showAddEntry = false)}
+	/>
+{/if}
+
+{#if showAddBreak && $activeSession}
+	<BreakModal
+		presetDate={selectedDate}
+		onChanged={loadDashboard}
+		onClose={() => (showAddBreak = false)}
 	/>
 {/if}
 

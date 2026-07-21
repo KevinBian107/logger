@@ -13,11 +13,15 @@
 		// When set (e.g. the dashboard "Add entry" modal for a viewed day), the
 		// form defaults to this date instead of today/yesterday, and the late-night
 		// Today/Yesterday prompt is suppressed (the user already chose the day).
-		presetDate = undefined
+		presetDate = undefined,
+		// When set (logging time from the Planner against a plan item), the entry
+		// gets linked via plan_item_id and a "Mark plan complete" checkbox appears.
+		planItemId = null
 	}: {
 		categories: CategoryResponse[];
 		onCreated: () => void;
 		presetDate?: string;
+		planItemId?: number | null;
 	} = $props();
 
 	function defaultDate(): string {
@@ -38,6 +42,9 @@
 	let startTime = $state('');
 	let error = $state('');
 	let saving = $state(false);
+	// Default unchecked — see StopDialog for the same reasoning (a multi-day
+	// plan is expected to accumulate several logged sessions before it's done).
+	let markComplete = $state(false);
 
 	onMount(() => {
 		const unsub = manualEntryDraft.subscribe((d) => {
@@ -83,8 +90,12 @@
 				duration_minutes: totalMinutes,
 				description: description || undefined,
 				location: location || undefined,
-				start_time: startIso
+				start_time: startIso,
+				plan_item_id: planItemId || undefined
 			});
+			if (planItemId && markComplete) {
+				await api.updatePlanItem(planItemId, { status: 'done' });
+			}
 			// Reset form + clear the persisted draft (it was for this entry).
 			categoryId = null;
 			hours = 0;
@@ -92,6 +103,7 @@
 			description = '';
 			location = '';
 			startTime = '';
+			markComplete = false;
 			// Re-default the date too — otherwise the local `date` would carry
 			// whatever the user picked into the next entry, including stale values.
 			date = defaultDate();
@@ -212,6 +224,13 @@
 			class="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
 		/>
 	</div>
+
+	{#if planItemId}
+		<label class="flex items-center gap-2 text-sm">
+			<input type="checkbox" bind:checked={markComplete} class="h-4 w-4 rounded border-border text-primary focus:ring-primary" />
+			Mark plan complete
+		</label>
+	{/if}
 
 	<button
 		onclick={handleSubmit}

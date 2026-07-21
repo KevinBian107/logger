@@ -101,7 +101,7 @@
 	});
 </script>
 
-<div class="flex h-full gap-6">
+<div class="flex h-full gap-6 overflow-y-auto p-6">
 	<!-- Left sidebar: Group selector -->
 	<div class="w-56 shrink-0">
 		<div class="mb-4">

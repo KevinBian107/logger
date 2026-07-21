@@ -29,8 +29,8 @@ export function stopPolling() {
 	}
 }
 
-export async function startTimer(categoryId: number) {
-	const timer = await api.startTimer(categoryId);
+export async function startTimer(categoryId: number, planItemId?: number | null) {
+	const timer = await api.startTimer(categoryId, planItemId);
 	await loadActiveTimers();
 	return timer;
 }

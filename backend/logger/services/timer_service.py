@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from logger.models import Category, Setting, TimerEntry
+from logger.models import Category, PlanItem, Setting, TimerEntry
 from logger.services.observation_service import (
     upsert_observation,
     upsert_text_entry,
@@ -52,8 +52,13 @@ def _now_iso() -> str:
 
 
 async def start_timer(
-    session_id: int, category_id: int, db: AsyncSession
+    session_id: int, category_id: int, db: AsyncSession, plan_item_id: int | None = None
 ) -> TimerEntry:
+    if plan_item_id is not None:
+        plan_item = await db.get(PlanItem, plan_item_id)
+        if not plan_item:
+            raise ValueError("Plan item not found")
+
     now = _now_iso()
     tz_name = await _user_tz(db)
     today = _iso_to_local_date(now, tz_name)
@@ -65,6 +70,7 @@ async def start_timer(
         is_active=True,
         is_paused=False,
         total_paused_seconds=0,
+        plan_item_id=plan_item_id,
     )
     db.add(timer)
     await db.flush()

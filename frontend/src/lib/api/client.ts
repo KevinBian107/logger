@@ -124,6 +124,8 @@ export interface TimerEntryResponse {
 	is_paused: boolean;
 	description: string | null;
 	location: string | null;
+	plan_item_id: number | null;
+	plan_item_title: string | null;
 }
 
 export interface ManualEntryResponse {
@@ -137,6 +139,33 @@ export interface ManualEntryResponse {
 	location: string | null;
 	start_time: string | null;     // ISO; null = not placed on timeline yet (UI infers)
 	created_at: string | null;
+	plan_item_id: number | null;
+	plan_item_title: string | null;
+}
+
+// ── Planner Types ────────────────────────────────────────
+
+export interface PlanItemResponse {
+	id: number;
+	title: string;
+	notes: string | null;
+	category_id: number;
+	category_name: string | null;
+	start_date: string;
+	end_date: string;
+	start_time: string | null;   // "HH:MM"; only meaningful when start_date === end_date
+	end_time: string | null;
+	status: 'planned' | 'done';
+	importance: 'low' | 'medium' | 'high' | null;
+	timer_count: number;
+	manual_count: number;
+	logged_minutes: number;
+	created_at: string | null;
+}
+
+export interface PlanItemDetailResponse extends PlanItemResponse {
+	timer_entries: TimerEntryResponse[];
+	manual_entries: ManualEntryResponse[];
 }
 
 export interface ObservationResponse {
@@ -528,10 +557,10 @@ export const api = {
 
 	// Timers
 	getActiveTimers: () => request<TimerEntryResponse[]>('/timers/active'),
-	startTimer: (categoryId: number) =>
+	startTimer: (categoryId: number, planItemId?: number | null) =>
 		request<TimerEntryResponse>('/timers/start', {
 			method: 'POST',
-			body: JSON.stringify({ category_id: categoryId })
+			body: JSON.stringify({ category_id: categoryId, plan_item_id: planItemId ?? undefined })
 		}),
 	pauseTimer: (id: number) =>
 		request<TimerEntryResponse>(`/timers/${id}/pause`, { method: 'POST' }),
@@ -568,6 +597,7 @@ export const api = {
 		description?: string;
 		location?: string;
 		start_time?: string | null;
+		plan_item_id?: number | null;
 	}) =>
 		request<ManualEntryResponse>('/manual-entries', {
 			method: 'POST',
@@ -752,4 +782,42 @@ export const api = {
 		request<Record<string, unknown>>('/projects/github/clear-cache', {
 			method: 'POST'
 		}),
+
+	// Planner
+	getPlanItems: (start: string, end: string) =>
+		request<PlanItemResponse[]>(`/planner/items?start=${start}&end=${end}`),
+	getPlanItem: (id: number) =>
+		request<PlanItemDetailResponse>(`/planner/items/${id}`),
+	createPlanItem: (data: {
+		title: string;
+		category_id: number;
+		start_date: string;
+		end_date?: string;
+		start_time?: string | null;
+		end_time?: string | null;
+		notes?: string | null;
+		importance?: 'low' | 'medium' | 'high';
+	}) =>
+		request<PlanItemResponse>('/planner/items', {
+			method: 'POST',
+			body: JSON.stringify(data),
+		}),
+	updatePlanItem: (id: number, data: {
+		title?: string;
+		category_id?: number;
+		start_date?: string;
+		end_date?: string;
+		start_time?: string | null;
+		end_time?: string | null;
+		notes?: string | null;
+		status?: 'planned' | 'done';
+		// Pass '' to clear back to unset; omit to leave alone.
+		importance?: 'low' | 'medium' | 'high' | '';
+	}) =>
+		request<PlanItemResponse>(`/planner/items/${id}`, {
+			method: 'PUT',
+			body: JSON.stringify(data),
+		}),
+	deletePlanItem: (id: number) =>
+		request<Record<string, unknown>>(`/planner/items/${id}`, { method: 'DELETE' }),
 };

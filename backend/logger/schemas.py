@@ -217,6 +217,8 @@ class DBInfoResponse(BaseModel):
 
 class TimerStartRequest(BaseModel):
     category_id: int
+    # Set when starting a timer from the Planner ("start what has been planned").
+    plan_item_id: int | None = None
 
 
 class TimerStopRequest(BaseModel):
@@ -250,6 +252,8 @@ class TimerEntryResponse(BaseModel):
     is_paused: bool
     description: str | None
     location: str | None
+    plan_item_id: int | None = None
+    plan_item_title: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -263,6 +267,8 @@ class ManualEntryCreate(BaseModel):
     description: str | None = None
     location: str | None = None
     start_time: str | None = None
+    # Set when logging time to close out a Planner item.
+    plan_item_id: int | None = None
 
 
 class ManualEntryUpdate(BaseModel):
@@ -288,6 +294,8 @@ class ManualEntryResponse(BaseModel):
     # null = unknown — UI infers start as created_at − duration.
     start_time: str | None = None
     created_at: str | None
+    plan_item_id: int | None = None
+    plan_item_title: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -326,6 +334,60 @@ class BreakDayResponse(BaseModel):
     created_at: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+# ── Planner ──────────────────────────────────────────────
+
+class PlanItemCreate(BaseModel):
+    title: str
+    category_id: int
+    start_date: str
+    # Defaults to start_date (single-day item) when omitted.
+    end_date: str | None = None
+    # "HH:MM". Only kept if start_date == end_date — see planner_service.
+    start_time: str | None = None
+    end_time: str | None = None
+    notes: str | None = None
+    importance: str | None = None  # "low" | "medium" | "high"
+
+
+class PlanItemUpdate(BaseModel):
+    title: str | None = None
+    category_id: int | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    # Pass "" to explicitly clear either time field; omit to leave alone.
+    start_time: str | None = None
+    end_time: str | None = None
+    notes: str | None = None
+    status: str | None = None  # "planned" | "done"
+    # Pass "" to clear back to unset; omit to leave alone.
+    importance: str | None = None
+
+
+class PlanItemResponse(BaseModel):
+    id: int
+    title: str
+    notes: str | None
+    category_id: int
+    category_name: str | None = None
+    start_date: str
+    end_date: str
+    start_time: str | None
+    end_time: str | None
+    status: str
+    importance: str | None = None
+    timer_count: int = 0
+    manual_count: int = 0
+    logged_minutes: int = 0
+    created_at: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class PlanItemDetailResponse(PlanItemResponse):
+    timer_entries: list[TimerEntryResponse] = []
+    manual_entries: list[ManualEntryResponse] = []
 
 
 # ── Groups (top-level semantic bucket) ──────────────────

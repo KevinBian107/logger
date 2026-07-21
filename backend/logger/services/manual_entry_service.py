@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from logger.models import ManualEntry, Category
+from logger.models import ManualEntry, Category, PlanItem
 from logger.services.observation_service import (
     upsert_observation,
     upsert_text_entry,
@@ -22,6 +22,7 @@ async def create_manual_entry(
     location: str | None,
     db: AsyncSession,
     start_time: str | None = None,
+    plan_item_id: int | None = None,
 ) -> ManualEntry:
     if duration_minutes < 1:
         raise ValueError("Duration must be at least 1 minute")
@@ -30,6 +31,11 @@ async def create_manual_entry(
     cat = await db.get(Category, category_id)
     if not cat or cat.session_id != session_id:
         raise ValueError("Category not found or does not belong to session")
+
+    if plan_item_id is not None:
+        plan_item = await db.get(PlanItem, plan_item_id)
+        if not plan_item:
+            raise ValueError("Plan item not found")
 
     entry = ManualEntry(
         session_id=session_id,
@@ -40,6 +46,7 @@ async def create_manual_entry(
         location=location,
         # Empty string clears it; otherwise store the ISO as given.
         start_time=start_time or None,
+        plan_item_id=plan_item_id,
     )
     db.add(entry)
     await db.flush()

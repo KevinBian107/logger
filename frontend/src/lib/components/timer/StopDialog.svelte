@@ -13,7 +13,9 @@
 		timer: TimerEntryResponse;
 		// overrideDate is non-null only when the late-night prompt shifted the
 		// date to "yesterday"; the dashboard threads it to api.stopTimer.
-		onSave: (id: number, description: string, location: string, overrideDate: string | null) => void;
+		// markComplete is only meaningful when timer.plan_item_id is set — true
+		// when the user checked "Mark plan complete" before saving.
+		onSave: (id: number, description: string, location: string, overrideDate: string | null, markComplete: boolean) => void;
 		onDiscard: (id: number) => void;
 		onCancel: () => void;
 	} = $props();
@@ -24,6 +26,10 @@
 	// (yesterday in the 0–5am window, today otherwise) but the user can flip it.
 	let attributedDate = $state<string>(timer.date);
 	const lateNight = isLateNight();
+	// Default unchecked: a plan-linked timer often represents one session of a
+	// larger, multi-day task, so closing this session shouldn't silently finish
+	// the whole plan unless the user says so.
+	let markComplete = $state(false);
 
 	const elapsed = $derived(computeElapsedSeconds(timer));
 	const roundedMinutes = $derived(Math.max(1, Math.round(elapsed / 60)));
@@ -56,6 +62,18 @@
 				<span class="font-mono text-lg font-bold tabular-nums">{formatDuration(roundedMinutes)}</span>
 			</div>
 		</div>
+
+		{#if timer.plan_item_id}
+			<div class="mt-4 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5">
+				<p class="text-xs text-muted-foreground">
+					Fulfilling plan: <span class="font-medium text-foreground">{timer.plan_item_title}</span>
+				</p>
+				<label class="mt-2 flex items-center gap-2 text-sm">
+					<input type="checkbox" bind:checked={markComplete} class="h-4 w-4 rounded border-border text-primary focus:ring-primary" />
+					Mark plan complete
+				</label>
+			</div>
+		{/if}
 
 		<div class="mt-4 space-y-3">
 			<LateNightDatePrompt bind:value={attributedDate} />
@@ -101,7 +119,8 @@
 						timer.id,
 						description,
 						location,
-						lateNight && attributedDate && attributedDate !== timer.date ? attributedDate : null
+						lateNight && attributedDate && attributedDate !== timer.date ? attributedDate : null,
+						markComplete
 					)}
 					class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90"
 				>
