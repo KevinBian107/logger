@@ -7,7 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."   # repo root
 
-SCRATCH_DB="$(mktemp -d)/walkthrough_demo.db"
+SCRATCH_DIR="$(mktemp -d)"
+SCRATCH_DB="$SCRATCH_DIR/walkthrough_demo.db"
 echo "== Seeding demo DB at $SCRATCH_DB =="
 LOGGER_DB_PATH="$SCRATCH_DB" uv run --project backend python scripts/walkthrough/seed_demo_data.py
 
@@ -22,6 +23,10 @@ cleanup() {
   # uv run / vite may spawn children with different PIDs -- belt and suspenders.
   lsof -ti:8000 -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
   lsof -ti:5173 -sTCP:LISTEN | xargs -r kill 2>/dev/null || true
+  # The scratch DB carries a copy of the anthropic_api_key blob -- don't
+  # leave it (or the demo data) sitting around in the temp dir.
+  echo "== Removing scratch DB =="
+  rm -rf "$SCRATCH_DIR"
 }
 trap cleanup EXIT
 
