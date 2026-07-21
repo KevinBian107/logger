@@ -8,6 +8,7 @@
 	 * component owns data loading elsewhere in this app.
 	 */
 	import { onMount } from 'svelte';
+	import { browser } from '$app/environment';
 	import type { CategoryResponse, PlanItemResponse } from '$lib/api/client';
 	import { colorForCategory } from '$lib/utils/chart';
 	import { formatLocalYMD } from '$lib/utils/lateNight';
@@ -26,13 +27,21 @@
 		categories: CategoryResponse[];
 		windowStart: string;
 		windowEnd: string;
-		onCreate: (data: { title: string; category_id: number; start_date: string; end_date: string }) => void | Promise<void>;
+		onCreate: (data: { title: string; category_id: number; start_date: string; end_date: string; importance?: 'low' | 'medium' | 'high' }) => void | Promise<void>;
 		onDatesChange: (id: number, start_date: string, end_date: string) => void | Promise<void>;
 		onSelect: (id: number) => void;
 		onPan: (direction: 'prev' | 'next' | 'today') => void;
 	} = $props();
 
-	const DAY_WIDTH = 64;
+	const DAY_WIDTH_MIN = 40;
+	const DAY_WIDTH_MAX = 140;
+	const DAY_WIDTH_STORAGE_KEY = 'planner-day-width';
+	function loadDayWidth(): number {
+		if (!browser) return 64;
+		const raw = Number(localStorage.getItem(DAY_WIDTH_STORAGE_KEY));
+		return raw >= DAY_WIDTH_MIN && raw <= DAY_WIDTH_MAX ? raw : 64;
+	}
+	let DAY_WIDTH = $state(loadDayWidth());
 	const ROW_HEIGHT = 34;
 	const ROW_GAP = 10;
 	const HEADER_HEIGHT = 64;
@@ -143,6 +152,24 @@
 		return Math.max(0, Math.min(days.length - 1, idx));
 	}
 
+	// ── Zoom drag: dragging any day-boundary handle in the header resizes every
+	// day column at once, since they all share the single DAY_WIDTH value ──────
+	type ZoomDrag = { startX: number; startWidth: number; boundary: number };
+	let zoomDrag = $state<ZoomDrag | null>(null);
+
+	function onZoomPointerDown(e: PointerEvent, boundary: number) {
+		if (e.button !== 0) return;
+		e.stopPropagation();
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		zoomDrag = { startX: e.clientX, startWidth: DAY_WIDTH, boundary };
+	}
+
+	function onZoomPointerUp() {
+		if (!zoomDrag) return;
+		zoomDrag = null;
+		if (browser) localStorage.setItem(DAY_WIDTH_STORAGE_KEY, String(DAY_WIDTH));
+	}
+
 	function xToDayIndex(clientX: number): number {
 		if (!scrollEl) return 0;
 		const rect = scrollEl.getBoundingClientRect();
@@ -202,6 +229,11 @@
 	}
 
 	function onPointerMove(e: PointerEvent) {
+		if (zoomDrag) {
+			const raw = zoomDrag.startWidth + (e.clientX - zoomDrag.startX);
+			DAY_WIDTH = Math.max(DAY_WIDTH_MIN, Math.min(DAY_WIDTH_MAX, raw));
+			return;
+		}
 		if (!drag) return;
 		const idx = xToDayIndex(e.clientX);
 		const delta = idx - drag.pointerStartIdx;
@@ -225,17 +257,22 @@
 	let quickCreate = $state<{ startDate: string; endDate: string; lane: number } | null>(null);
 	let qcTitle = $state('');
 	let qcCategoryId = $state<number | null>(null);
+	let qcImportance = $state<'low' | 'medium' | 'high' | null>(null);
+	let qcCategoryOpen = $state(false);
 	let qcInput = $state<HTMLInputElement | null>(null);
 
 	function openQuickCreate(startIdx: number, endIdx: number) {
 		quickCreate = { startDate: days[startIdx].ymd, endDate: days[endIdx].ymd, lane: laneCount };
 		qcTitle = '';
 		qcCategoryId = categories[0]?.id ?? null;
+		qcImportance = null;
+		qcCategoryOpen = false;
 		queueMicrotask(() => qcInput?.focus());
 	}
 
 	function closeQuickCreate() {
 		quickCreate = null;
+		qcCategoryOpen = false;
 	}
 
 	// "+ New" button: same popover as drag-create, defaulted to a single day on
@@ -252,11 +289,18 @@
 			category_id: qcCategoryId,
 			start_date: quickCreate.startDate,
 			end_date: quickCreate.endDate,
+			importance: qcImportance ?? undefined,
 		});
 		closeQuickCreate();
 	}
 
+	const qcSelectedCategory = $derived(categories.find((c) => c.id === qcCategoryId) ?? null);
+
 	function onPointerUp() {
+		if (zoomDrag) {
+			onZoomPointerUp();
+			return;
+		}
 		if (!drag) return;
 		const d = drag;
 		drag = null;
@@ -362,6 +406,21 @@
 							<span class="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full {day.isToday ? 'bg-primary text-primary-foreground' : ''}">{day.dayNum}</span>
 						</div>
 					{/each}
+
+					<!-- Day-boundary zoom handles: drag any one to resize every day column
+						 at once (all columns share the single DAY_WIDTH value). Kept to the
+						 header row only so they never compete with an item bar's own resize
+						 hit-zones below. -->
+					{#each days.slice(0, -1) as _, i}
+						<div
+							class="absolute top-0 z-10 flex items-stretch justify-center px-[2px] cursor-ew-resize"
+							style="left:{(i + 1) * DAY_WIDTH - 3}px; width:6px; height:{HEADER_HEIGHT}px;"
+							onpointerdown={(e) => onZoomPointerDown(e, i)}
+							role="presentation"
+						>
+							<span class="w-0.5 rounded-full transition-colors {zoomDrag?.boundary === i ? 'bg-primary' : 'bg-transparent hover:bg-primary/70'}"></span>
+						</div>
+					{/each}
 				</div>
 			</div>
 
@@ -445,9 +504,9 @@
 			{#if quickCreate}
 				{@const s = dayIndex(quickCreate.startDate)}
 				<div
-					class="absolute z-30 w-56 rounded-lg border border-border bg-card p-3 shadow-2xl"
-					style="left:{Math.min(s * DAY_WIDTH, contentWidth - 232)}px; top:{laneY(quickCreate.lane) + ROW_HEIGHT + 4}px;"
-					onclick={(e) => e.stopPropagation()}
+					class="quick-create-root absolute z-30 w-80 rounded-xl border border-border bg-card p-4 shadow-2xl"
+					style="left:{Math.min(s * DAY_WIDTH, contentWidth - 328)}px; top:{laneY(quickCreate.lane) + ROW_HEIGHT + 4}px;"
+					onclick={(e) => { e.stopPropagation(); if (qcCategoryOpen && !(e.target as HTMLElement).closest('.qc-category-root')) qcCategoryOpen = false; }}
 					onpointerdown={(e) => e.stopPropagation()}
 					role="presentation"
 				>
@@ -457,25 +516,67 @@
 						bind:value={qcTitle}
 						placeholder="Plan title…"
 						onkeydown={(e) => { if (e.key === 'Enter') submitQuickCreate(); if (e.key === 'Escape') closeQuickCreate(); }}
-						class="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+						class="w-full border-none bg-transparent text-base font-medium placeholder:font-normal placeholder:text-muted-foreground focus:outline-none"
 					/>
-					<select
-						bind:value={qcCategoryId}
-						class="mt-2 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-					>
-						{#each categories as cat}
-							<option value={cat.id}>{cat.display_name || cat.name}</option>
+
+					<div class="mt-3 flex flex-wrap items-center gap-1.5">
+						<!-- Category picker: color dot + name, opens a list popover -->
+						<div class="qc-category-root relative">
+							<button
+								type="button"
+								onclick={() => (qcCategoryOpen = !qcCategoryOpen)}
+								class="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium hover:border-primary/50"
+							>
+								{#if qcSelectedCategory}
+									<span class="h-2 w-2 shrink-0 rounded-full" style="background-color:{colorForCategory(qcSelectedCategory.name)}"></span>
+									<span class="max-w-24 truncate">{qcSelectedCategory.display_name || qcSelectedCategory.name}</span>
+								{:else}
+									<span class="text-muted-foreground">Category</span>
+								{/if}
+								<svg class="h-3 w-3 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+							</button>
+							{#if qcCategoryOpen}
+								<div class="absolute left-0 z-40 mt-1.5 max-h-56 w-48 overflow-y-auto rounded-xl border border-border bg-card p-1.5 shadow-2xl">
+									{#each categories as cat}
+										<button
+											type="button"
+											onclick={() => { qcCategoryId = cat.id; qcCategoryOpen = false; }}
+											class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted {cat.id === qcCategoryId ? 'font-semibold text-primary' : ''}"
+										>
+											<span class="h-2 w-2 shrink-0 rounded-full" style="background-color:{colorForCategory(cat.name)}"></span>
+											<span class="truncate">{cat.display_name || cat.name}</span>
+										</button>
+									{/each}
+								</div>
+							{/if}
+						</div>
+
+						<!-- Priority quick-pick -->
+						{#each [['low', 'Low', 'bg-sky-500'], ['medium', 'Medium', 'bg-amber-500'], ['high', 'High', 'bg-red-500']] as [v, label, dot]}
+							<button
+								type="button"
+								onclick={() => (qcImportance = qcImportance === v ? null : (v as 'low' | 'medium' | 'high'))}
+								class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors
+									{qcImportance === v ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border bg-background text-muted-foreground hover:text-foreground'}"
+							>
+								<span class="h-2 w-2 shrink-0 rounded-full {dot}"></span>
+								{label}
+							</button>
 						{/each}
-					</select>
-					<div class="mt-2 flex justify-end gap-2">
-						<button onclick={closeQuickCreate} class="rounded-md px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted">Cancel</button>
-						<button
-							onclick={submitQuickCreate}
-							disabled={!qcCategoryId}
-							class="rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-50"
-						>
-							Create
-						</button>
+					</div>
+
+					<div class="mt-3.5 flex items-center justify-between border-t border-border pt-3">
+						<span class="text-[11px] text-muted-foreground">↵ to create · esc to cancel</span>
+						<div class="flex gap-2">
+							<button onclick={closeQuickCreate} class="rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted">Cancel</button>
+							<button
+								onclick={submitQuickCreate}
+								disabled={!qcCategoryId}
+								class="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+							>
+								Create
+							</button>
+						</div>
 					</div>
 				</div>
 			{/if}

@@ -76,7 +76,7 @@
 		}
 	}
 
-	async function handleCreate(data: { title: string; category_id: number; start_date: string; end_date: string }) {
+	async function handleCreate(data: { title: string; category_id: number; start_date: string; end_date: string; importance?: 'low' | 'medium' | 'high' }) {
 		try {
 			const item = await api.createPlanItem(data);
 			await loadItems();

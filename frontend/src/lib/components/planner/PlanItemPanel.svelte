@@ -12,6 +12,7 @@
 	import TimerCard from '$lib/components/timer/TimerCard.svelte';
 	import StopDialog from '$lib/components/timer/StopDialog.svelte';
 	import ManualEntryForm from '$lib/components/timer/ManualEntryForm.svelte';
+	import NotesEditor from '$lib/components/planner/NotesEditor.svelte';
 	import { colorForCategory } from '$lib/utils/chart';
 	import { shortDateLabel } from '$lib/utils/lateNight';
 
@@ -80,11 +81,6 @@
 	function handleTitleBlur(e: FocusEvent) {
 		const value = (e.target as HTMLInputElement).value;
 		if (detail && value.trim() && value !== detail.title) saveField({ title: value });
-	}
-
-	function handleNotesBlur(e: FocusEvent) {
-		const value = (e.target as HTMLTextAreaElement).value;
-		if (detail && value !== (detail.notes ?? '')) saveField({ notes: value });
 	}
 
 	function toggleComplete() {
@@ -311,13 +307,9 @@
 
 				<!-- Notes -->
 				<div class="mt-6 border-t border-border pt-4">
-					<textarea
-						value={detail.notes ?? ''}
-						onblur={handleNotesBlur}
-						rows="5"
-						placeholder="Add notes…"
-						class="w-full resize-none rounded border-none bg-transparent px-1.5 py-1 text-sm leading-relaxed placeholder:text-muted-foreground/70 focus:bg-muted/40 focus:outline-none"
-					></textarea>
+					{#key itemId}
+						<NotesEditor value={detail.notes ?? ''} onChange={(v) => saveField({ notes: v })} />
+					{/key}
 				</div>
 
 				<!-- Start / active timer -->
