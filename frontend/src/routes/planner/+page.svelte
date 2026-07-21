@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { api, type CategoryResponse, type PlanItemResponse } from '$lib/api/client';
 	import { activeSession, loadActiveSession } from '$lib/stores/session';
+	import { startPolling, stopPolling } from '$lib/stores/timer';
 	import { formatLocalYMD } from '$lib/utils/lateNight';
 	import PlannerTimeline from '$lib/components/planner/PlannerTimeline.svelte';
 	import PlanItemPanel from '$lib/components/planner/PlanItemPanel.svelte';
@@ -93,6 +94,14 @@
 	onMount(async () => {
 		await loadActiveSession();
 		await loadCategories();
+		// The panel needs to know about already-running timers (e.g. one started
+		// from the Dashboard) to show them inline instead of a stale "Start timer"
+		// button — same store the Dashboard keeps warm via polling.
+		startPolling();
+	});
+
+	onDestroy(() => {
+		stopPolling();
 	});
 </script>
 

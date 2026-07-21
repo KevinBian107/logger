@@ -27,12 +27,12 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 _pending_approvals: dict[str, dict] = {}
 
 AVAILABLE_MODELS = [
-    {"id": "claude-sonnet-4-20250514", "name": "Claude Sonnet 4"},
+    {"id": "claude-sonnet-5", "name": "Claude Sonnet 5"},
     {"id": "claude-haiku-4-5-20251001", "name": "Claude Haiku 4.5"},
-    {"id": "claude-opus-4-20250514", "name": "Claude Opus 4"},
+    {"id": "claude-opus-4-8", "name": "Claude Opus 4.8"},
 ]
 
-DEFAULT_MODEL = "claude-sonnet-4-20250514"
+DEFAULT_MODEL = "claude-sonnet-5"
 
 SYSTEM_PROMPT = """You are an AI assistant for log(ger), a personal time-tracking app. \
 You answer questions about the user's logged study/work time by calling tools \

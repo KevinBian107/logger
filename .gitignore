@@ -21,6 +21,10 @@ frontend/node_modules/
 frontend/.svelte-kit/
 frontend/build/
 
+# Walkthrough capture tooling
+scripts/walkthrough/node_modules/
+scripts/walkthrough/package-lock.json
+
 # Website (hosted separately)
 website/
 
