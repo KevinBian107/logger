@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240">
-  <!-- Black rounded square background -->
-  <rect width="240" height="240" rx="48" fill="#0a0a0a"/>
-  <!-- Subtle logarithmic curve (decorative) -->
-  <path d="M40 200 Q60 180 80 140 Q100 100 140 80 Q170 65 210 58"
-        fill="none" stroke="white" stroke-opacity="0.12" stroke-width="18" stroke-linecap="round"/>
+  <!-- Dark rounded square background -->
+  <rect width="240" height="240" rx="48" fill="#141414"/>
+  <!-- The mark is the wordmark's own punctuation: log( ger ) -->
+  <path d="M90 52 Q50 120 90 188" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round"/>
+  <path d="M150 52 Q190 120 150 188" fill="none" stroke="#ffffff" stroke-width="16" stroke-linecap="round"/>
+  <circle cx="120" cy="120" r="11" fill="#6366F1"/>
   <!-- Text: log(ger) -->
-  <text x="120" y="136" text-anchor="middle" font-family="'SF Mono','Fira Code','Consolas',monospace" font-weight="700" fill="white">
-    <tspan font-size="48">log</tspan><tspan font-size="48" fill-opacity="0.55">(</tspan><tspan font-size="48">ger</tspan><tspan font-size="48" fill-opacity="0.55">)</tspan>
+  <text x="120" y="222" text-anchor="middle" font-family="'SF Mono','Fira Code','Consolas',monospace" font-weight="700" fill="white">
+    <tspan font-size="26">log</tspan><tspan font-size="26" fill-opacity="0.55">(</tspan><tspan font-size="26">ger</tspan><tspan font-size="26" fill-opacity="0.55">)</tspan>
   </text>
 </svg>

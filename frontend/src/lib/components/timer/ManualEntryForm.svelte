@@ -16,12 +16,17 @@
 		presetDate = undefined,
 		// When set (logging time from the Planner against a plan item), the entry
 		// gets linked via plan_item_id and a "Mark plan complete" checkbox appears.
-		planItemId = null
+		planItemId = null,
+		// When set (logging time against a plan item), the category is fixed to
+		// the plan's own category — same reasoning as presetDate: never overwritten
+		// by the draft-restore below.
+		presetCategoryId = null
 	}: {
 		categories: CategoryResponse[];
 		onCreated: () => void;
 		presetDate?: string;
 		planItemId?: number | null;
+		presetCategoryId?: number | null;
 	} = $props();
 
 	function defaultDate(): string {
@@ -31,7 +36,7 @@
 
 	// Local copies of the draft fields. We read once on mount and write back
 	// to the store via $effect so the draft survives page navigation.
-	let categoryId = $state<number | null>(null);
+	let categoryId = $state<number | null>(presetCategoryId);
 	let date = $state(defaultDate());
 	let hours = $state(0);
 	let minutes = $state(0);
@@ -54,7 +59,8 @@
 			// entries under the wrong day. The date always uses the fresh
 			// initializer (today, or yesterday-in-late-night) at mount time;
 			// the user can override via the date input or the LateNightDatePrompt.
-			categoryId = d.categoryId;
+			// Same treatment for category when a plan fixed it via presetCategoryId.
+			if (presetCategoryId == null) categoryId = d.categoryId;
 			hours = d.hours;
 			minutes = d.minutes;
 			description = d.description;

@@ -355,6 +355,7 @@
 								{categories}
 								presetDate={detail.start_date}
 								planItemId={itemId}
+								presetCategoryId={detail.category_id}
 								onCreated={handleLogged}
 							/>
 						</div>

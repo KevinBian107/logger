@@ -110,7 +110,14 @@
 	});
 
 	const laneCount = $derived(laned.length === 0 ? 0 : Math.max(...laned.map((l) => l.lane + 1)));
-	const contentHeight = $derived(HEADER_HEIGHT + Math.max(laneCount, 4) * (ROW_HEIGHT + ROW_GAP));
+	// Floored by the scroll viewport's own visible height so the day-column
+	// gridlines/weekend tint/today-guide always reach the bottom of the box,
+	// even when there are few (or no) rows — otherwise they stop partway down
+	// and the rest of the box reads as a dead, ungridded gap.
+	let viewportHeight = $state(0);
+	const contentHeight = $derived(
+		Math.max(HEADER_HEIGHT + Math.max(laneCount, 4) * (ROW_HEIGHT + ROW_GAP), viewportHeight)
+	);
 
 	function laneY(lane: number): number {
 		return HEADER_HEIGHT + lane * (ROW_HEIGHT + ROW_GAP);
@@ -334,7 +341,7 @@
 	</div>
 
 	<!-- Scrollable grid -->
-	<div bind:this={scrollEl} class="min-h-0 flex-1 overflow-auto">
+	<div bind:this={scrollEl} bind:clientHeight={viewportHeight} class="min-h-0 flex-1 overflow-auto">
 		<div class="relative select-none" style="width:{contentWidth}px; height:{contentHeight}px;">
 			<!-- Header (sticky while scrolling vertically) -->
 			<div class="sticky top-0 z-20 bg-card" style="height:{HEADER_HEIGHT}px;">
