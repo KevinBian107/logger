@@ -11,7 +11,7 @@
 	import { browser } from '$app/environment';
 	import type { CategoryResponse, PlanItemResponse } from '$lib/api/client';
 	import { colorForCategory } from '$lib/utils/chart';
-	import { formatLocalYMD } from '$lib/utils/lateNight';
+	import { todayYMD } from '$lib/stores/clock';
 
 	let {
 		items,
@@ -46,7 +46,7 @@
 	const ROW_GAP = 10;
 	const HEADER_HEIGHT = 64;
 
-	const todayYmd = formatLocalYMD(new Date());
+	const todayYmd = $derived($todayYMD);
 
 	function ymdToDate(ymd: string): Date {
 		const [y, m, d] = ymd.split('-').map(Number);

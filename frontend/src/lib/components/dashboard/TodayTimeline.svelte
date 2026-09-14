@@ -3,6 +3,7 @@
 	import * as d3 from 'd3';
 	import type { TimerEntryResponse, ManualEntryResponse } from '$lib/api/client';
 	import { timezone, normalizeAsUtc } from '$lib/stores/timezone';
+	import { nowMs } from '$lib/stores/clock';
 	import { shortDateLabel } from '$lib/utils/lateNight';
 	import { colorForCategory } from '$lib/utils/chart';
 
@@ -227,8 +228,11 @@
 	);
 
 	// "Now" only matters when looking at today — on past days it would push the
-	// x-domain to a nonsensical wall-clock hour.
-	const nowHour = $derived(viewingToday ? hourOfDay(new Date().toISOString(), $timezone) : 0);
+	// x-domain to a nonsensical wall-clock hour. Read off the ticking clock store
+	// so the guide line actually advances on a page that's been left open.
+	const nowHour = $derived(
+		viewingToday ? hourOfDay(new Date($nowMs).toISOString(), $timezone) : 0,
+	);
 
 	const xDomain = $derived.by<[number, number]>(() => {
 		if (events.length === 0) {

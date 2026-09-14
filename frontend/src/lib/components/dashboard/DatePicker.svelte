@@ -1,17 +1,21 @@
 <script lang="ts">
-	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import { formatLocalYMD, shortDateLabel, lateNightDateOptions } from '$lib/utils/lateNight';
+	import { todayYMD } from '$lib/stores/clock';
 	import { api } from '$lib/api/client';
 
 	// Bound YYYY-MM-DD string. Parent owns it.
 	let {
 		value = $bindable<string>(formatLocalYMD(new Date())),
-		// Optional bound for "future" — defaults to "today" so users can't pick days
-		// that don't have data yet.
-		maxDate = formatLocalYMD(new Date()),
+		// Optional bound for "future" — left empty it tracks the live "today", so
+		// users can't pick days that don't have data yet (and CAN pick the new day
+		// once the clock rolls past midnight).
+		maxDate = '',
 	}: {
 		value?: string;
 		maxDate?: string;
 	} = $props();
+
+	const max = $derived(maxDate || $todayYMD);
 
 	let open = $state(false);
 
@@ -33,8 +37,6 @@
 		}
 	});
 
-	const todayYMD = formatLocalYMD(new Date());
-
 	// Day cells for the visible month grid (always 42 cells = 6 rows × 7 cols).
 	const cells = $derived.by(() => {
 		const firstOfMonth = new Date(viewYear, viewMonth, 1);
@@ -49,7 +51,7 @@
 				ymd,
 				day: d.getDate(),
 				inMonth: d.getMonth() === viewMonth,
-				future: ymd > maxDate,
+				future: ymd > max,
 			});
 		}
 		return out;
@@ -106,14 +108,12 @@
 	}
 
 	function jumpToday() {
-		value = todayYMD;
+		value = $todayYMD;
 		open = false;
 	}
 
 	function jumpYesterday() {
-		const y = new Date();
-		y.setDate(y.getDate() - 1);
-		value = formatLocalYMD(y);
+		value = lateNightDateOptions().yesterday;
 		open = false;
 	}
 
@@ -192,7 +192,7 @@
 								? 'bg-primary text-primary-foreground font-semibold'
 								: isBreak
 									? 'bg-amber-500/15 font-medium text-amber-700 hover:bg-amber-500/25 dark:text-amber-400'
-									: c.ymd === todayYMD
+									: c.ymd === $todayYMD
 										? 'bg-primary/10 font-semibold text-primary hover:bg-primary/20'
 										: c.inMonth
 											? 'text-foreground hover:bg-muted'

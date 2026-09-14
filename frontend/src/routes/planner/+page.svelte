@@ -3,7 +3,7 @@
 	import { api, type CategoryResponse, type PlanItemResponse } from '$lib/api/client';
 	import { activeSession, loadActiveSession } from '$lib/stores/session';
 	import { startPolling, stopPolling } from '$lib/stores/timer';
-	import { formatLocalYMD } from '$lib/utils/lateNight';
+	import { todayYMD, todayYMDNow } from '$lib/stores/clock';
 	import PlannerTimeline from '$lib/components/planner/PlannerTimeline.svelte';
 	import PlanItemPanel from '$lib/components/planner/PlanItemPanel.svelte';
 	import PlannerFilterBar, { type PlannerFilters, defaultPlannerFilters } from '$lib/components/planner/PlannerFilterBar.svelte';
@@ -24,9 +24,13 @@
 		return dateToYmd(new Date(d.getFullYear(), d.getMonth(), d.getDate() + n));
 	}
 
-	const today = formatLocalYMD(new Date());
-	let windowStart = $state(addDays(today, -WINDOW_BEFORE_DAYS));
-	let windowEnd = $state(addDays(today, WINDOW_AFTER_DAYS));
+	// Live current day (see stores/clock) — the planner is often left open for
+	// long stretches, and "Today" must still mean today tomorrow.
+	const today = $derived($todayYMD);
+	// The visible window is only SEEDED from today; panning is user-driven from
+	// there, so it deliberately takes a snapshot rather than tracking the store.
+	let windowStart = $state(addDays(todayYMDNow(), -WINDOW_BEFORE_DAYS));
+	let windowEnd = $state(addDays(todayYMDNow(), WINDOW_AFTER_DAYS));
 
 	let categories = $state<CategoryResponse[]>([]);
 	let items = $state<PlanItemResponse[]>([]);

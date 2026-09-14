@@ -20,32 +20,29 @@
 	import ManualEntryModal from '$lib/components/timer/ManualEntryModal.svelte';
 	import BreakBanner from '$lib/components/dashboard/BreakBanner.svelte';
 	import BreakModal from '$lib/components/dashboard/BreakModal.svelte';
-	import { formatLocalYMD, shortDateLabel } from '$lib/utils/lateNight';
+	import { shortDateLabel, longDateLabel } from '$lib/utils/lateNight';
 	import { colorForCategory } from '$lib/utils/chart';
-	import { viewDate } from '$lib/stores/viewDate';
-	import { get } from 'svelte/store';
+	import { viewDate, goToToday } from '$lib/stores/viewDate';
+	import { todayYMD, currentHour } from '$lib/stores/clock';
 	import type { ManualEntryResponse } from '$lib/api/client';
-
-	const todayLabel = new Date().toLocaleDateString(undefined, {
-		weekday: 'long',
-		month: 'long',
-		day: 'numeric',
-	});
 
 	// SVG icon strings used by stat cards
 	const ICON_CLOCK = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" d="M12 7v5l3 2"/></svg>`;
 	const ICON_LIST = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/></svg>`;
 	const ICON_FLAME = `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 2c1 4 5 6 5 11a5 5 0 11-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-4-1-6 1-10z"/></svg>`;
 
-	// `today` is captured once on mount; `selectedDate` is what the user is viewing
-	// (today by default, or any past day picked via the calendar). The two are
-	// compared to render different copy and disable today-only affordances.
-	const today = formatLocalYMD(new Date());
-	// Initialise from the shared store so a date picked elsewhere (or before
-	// navigating away) is restored, then mirror local changes back to it.
-	let selectedDate = $state<string>(get(viewDate));
+	// `today` is LIVE — it comes from the clock store rather than a `new Date()`
+	// snapshot taken when this component initialised, so leaving the Recorder
+	// open across midnight (or waking the machine the next morning) rolls the
+	// page over on its own instead of waiting for a remount.
+	const today = $derived($todayYMD);
+	const todayLabel = $derived(longDateLabel($todayYMD));
+	// `selectedDate` is what the user is viewing (today by default, or any past
+	// day picked via the calendar). It lives in the shared store so it survives
+	// in-app navigation, and so the store can advance it at midnight while the
+	// view is following today.
+	const selectedDate = $derived($viewDate);
 	const viewingToday = $derived(selectedDate === today);
-	$effect(() => { viewDate.set(selectedDate); });
 
 	let showAddEntry = $state(false);
 	let showAddBreak = $state(false);
@@ -59,12 +56,11 @@
 	let editingTimer = $state<TimerEntryResponse | null>(null);
 	let editingManual = $state<ManualEntryResponse | null>(null);
 
-	function getGreeting(): string {
-		const h = new Date().getHours();
-		if (h < 12) return 'Good morning';
-		if (h < 17) return 'Good afternoon';
-		return 'Good evening';
-	}
+	// Tracks the live hour in the app's timezone, so an app left open from
+	// morning to evening doesn't keep saying "Good morning".
+	const greeting = $derived(
+		$currentHour < 12 ? 'Good morning' : $currentHour < 17 ? 'Good afternoon' : 'Good evening',
+	);
 
 	function formatHoursMinutes(min: number): string {
 		const h = Math.floor(min / 60);
@@ -93,12 +89,20 @@
 		}
 	}
 
-	// Reload whenever the user picks a different date in the calendar.
+	// Reload whenever the viewed day changes — whether the user picked it in the
+	// calendar or it rolled over at midnight on its own.
+	//
+	// `lastLoadedDate` is a plain variable, NOT $state, and that is load-bearing:
+	// the guard must not be a reactive read. Guarding on `dailyActivity` (which
+	// loadDashboard() assigns) made this effect depend on its own output and spin
+	// into an endless reload loop, hammering the backend for as long as the page
+	// was open.
+	let lastLoadedDate: string | null = null;
 	$effect(() => {
-		selectedDate;
-		if (dailyActivity !== null) {
-			loadDashboard();
-		}
+		const d = selectedDate;
+		if (d === lastLoadedDate) return;
+		lastLoadedDate = d;
+		loadDashboard();
 	});
 
 	async function handleQuickStart() {
@@ -186,9 +190,20 @@
 		} catch (e: unknown) { console.error(e); }
 	}
 
+	// The initial load is driven by the date effect above (it runs on mount).
 	onMount(() => {
-		loadDashboard();
 		startPolling();
+		// Coming back to a window that has been sitting in the background should
+		// show what's actually on the server for the — possibly new — current day.
+		const refresh = () => {
+			if (!document.hidden) loadDashboard();
+		};
+		window.addEventListener('focus', refresh);
+		document.addEventListener('visibilitychange', refresh);
+		return () => {
+			window.removeEventListener('focus', refresh);
+			document.removeEventListener('visibilitychange', refresh);
+		};
 	});
 
 	onDestroy(() => {
@@ -235,11 +250,11 @@
 	<!-- Hero: greeting + date + date picker + active-session pill -->
 	<div class="flex flex-wrap items-end justify-between gap-3">
 		<div>
-			<h1 class="text-3xl font-bold tracking-tight">{getGreeting()}</h1>
+			<h1 class="text-3xl font-bold tracking-tight">{greeting}</h1>
 			<p class="mt-1 text-sm text-muted-foreground">{todayLabel}</p>
 		</div>
 		<div class="flex flex-wrap items-center gap-2">
-			<DatePicker bind:value={selectedDate} maxDate={today} />
+			<DatePicker bind:value={$viewDate} maxDate={today} />
 			{#if $activeSession}
 				<button
 					onclick={() => (showAddEntry = true)}
@@ -260,7 +275,7 @@
 			{/if}
 			{#if !viewingToday}
 				<button
-					onclick={() => (selectedDate = today)}
+					onclick={goToToday}
 					class="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
 					title="Jump back to today"
 				>

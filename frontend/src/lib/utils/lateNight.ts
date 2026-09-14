@@ -38,6 +38,13 @@ export function lateNightDateOptions(now: Date = new Date(), tz?: string): { tod
 	return { today, yesterday };
 }
 
+/** Long label for a YYYY-MM-DD, e.g. "Monday, May 25". Parsed as local date. */
+export function longDateLabel(ymd: string): string {
+	const [y, m, d] = ymd.split('-').map(Number);
+	const dt = new Date(y, m - 1, d);
+	return dt.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
 /** Readable label for a YYYY-MM-DD, e.g. "Mon, May 25". Parsed as local date. */
 export function shortDateLabel(ymd: string): string {
 	const [y, m, d] = ymd.split('-').map(Number);
