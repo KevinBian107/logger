@@ -13,13 +13,20 @@
 
 	const BAR_HEIGHT = 28;
 	const GAP = 4;
-	const MAX_BARS = 15;
+	// The panel is a fixed-height viewport that the full bar list scrolls inside,
+	// so every category is reachable without the list shoving the charts below it
+	// off the page. It shrinks to fit when there are only a few categories.
+	const MAX_VIEWPORT_H = 420;
+
+	// Full rendered height of the bar list, for the scroll affordance in the header.
+	let contentHeight = $state(0);
+	const scrollable = $derived(contentHeight > MAX_VIEWPORT_H);
 
 	function render() {
 		if (!data.length || !svgEl || !container) return;
 
 		const theme = getThemeColors(container);
-		const items = data.slice(0, MAX_BARS);
+		const items = data;
 		const margin = { top: 4, right: 60, bottom: 4, left: 200 };
 		const h = items.length * (BAR_HEIGHT + GAP) + margin.top + margin.bottom;
 		const w = width - margin.left - margin.right;
@@ -80,16 +87,24 @@
 				.text(formatHoursMinutes(d.total_minutes));
 		}
 
-		// Set the container to actual height
+		// Hug the content until it outgrows the viewport, then cap it and let the
+		// container scroll (it carries overflow-y: auto).
+		contentHeight = h;
 		if (container) {
-			container.style.height = `${h}px`;
+			container.style.height = `${Math.min(h, MAX_VIEWPORT_H)}px`;
 		}
 	}
 
 	$effect(() => {
-		if (data && svgEl && container) {
-			requestAnimationFrame(() => render());
+		if (!container) return;
+		if (data.length === 0) {
+			// Nothing to draw — drop the cached viewport height so the empty state
+			// doesn't sit inside a 420px void left over from the previous range.
+			contentHeight = 0;
+			container.style.height = '';
+			return;
 		}
+		if (svgEl) requestAnimationFrame(() => render());
 	});
 
 	onMount(() => {
@@ -106,7 +121,14 @@
 </script>
 
 <div class="rounded-lg border border-border bg-card p-4">
-	<h3 class="mb-2 text-sm font-semibold">Category Breakdown</h3>
+	<div class="mb-2 flex items-baseline justify-between gap-3">
+		<h3 class="text-sm font-semibold">Category Breakdown</h3>
+		{#if data.length > 0}
+			<span class="text-xs text-muted-foreground">
+				{data.length} categor{data.length === 1 ? 'y' : 'ies'}{scrollable ? ' · scroll for more' : ''}
+			</span>
+		{/if}
+	</div>
 	<div class="relative overflow-y-auto" style="min-height: 100px;" bind:this={container}>
 		{#if data.length === 0}
 			<div class="flex h-24 items-center justify-center text-sm text-muted-foreground">

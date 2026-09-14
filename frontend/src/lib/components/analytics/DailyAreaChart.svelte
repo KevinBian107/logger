@@ -115,6 +115,16 @@
 				xTickFormat = d3.timeFormat('%d');
 				xTickCount = Math.min(data.length, 8);
 				break;
+			case 'range': {
+				// A custom span: let the number of points decide how dense the
+				// ticks can be before they collide.
+				xTickFormat =
+					data.length <= 14 ? d3.timeFormat('%a %d')
+					: data.length <= 120 ? d3.timeFormat('%b %d')
+					: d3.timeFormat('%b %Y');
+				xTickCount = Math.min(data.length, 8);
+				break;
+			}
 			case 'week':
 				xTickFormat = d3.timeFormat('%a %d');
 				xTickCount = 7;

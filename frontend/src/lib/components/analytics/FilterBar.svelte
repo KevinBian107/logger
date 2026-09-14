@@ -1,7 +1,10 @@
 <script lang="ts">
 	import type { SessionResponse, AnalyticsFilters } from '$lib/api/client';
+	import DateRangePicker from './DateRangePicker.svelte';
+	import { todayYMDNow } from '$lib/stores/clock';
+	import { addDaysYMD } from '$lib/utils/lateNight';
 
-	type Scale = 'overall' | 'year' | 'month';
+	type Scale = 'overall' | 'year' | 'month' | 'range';
 
 	// Bindable state lifted to the parent so it survives in-app tab navigation
 	// (the +page.svelte exposes a snapshot that captures these values).
@@ -9,20 +12,26 @@
 	// Note: 'week' was previously a fourth scale but produced inconsistent results
 	// — older CSV imports lacked a week column so daily_records had week_number=NULL,
 	// and there's no single semantic ("session-relative" vs "ISO calendar week") that
-	// works for all data. Removed in favour of Year/Month/Overall which align cleanly
-	// with the date_range filter the backend already supports.
+	// works for all data. Removed in favour of Overall/Year/Month/Range, which all
+	// align cleanly with the date_range filter the backend already supports.
 	let {
 		sessions,
 		onFilterChange,
 		scale = $bindable<Scale>('overall'),
 		selectedYear = $bindable<number | null>(null),
 		selectedMonth = $bindable<number | null>(null),
+		// Range scale: an inclusive [from, to] span. Defaults to the last 30 days;
+		// a single day is just from === to.
+		rangeFrom = $bindable<string>(addDaysYMD(todayYMDNow(), -29)),
+		rangeTo = $bindable<string>(todayYMDNow()),
 	}: {
 		sessions: SessionResponse[];
 		onFilterChange: (filters: AnalyticsFilters, timeScale: string) => void;
 		scale?: Scale;
 		selectedYear?: number | null;
 		selectedMonth?: number | null;
+		rangeFrom?: string;
+		rangeTo?: string;
 	} = $props();
 
 	const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -55,6 +64,8 @@
 				from_date: `${selectedYear}-${mm}-01`,
 				to_date: `${selectedYear}-${mm}-${String(lastDay).padStart(2, '0')}`
 			};
+		} else if (scale === 'range' && rangeFrom && rangeTo) {
+			filters = { from_date: rangeFrom, to_date: rangeTo };
 		}
 		// 'overall' sends empty filters
 
@@ -95,6 +106,7 @@
 		{ key: 'overall', label: 'Overall' },
 		{ key: 'year', label: 'Year' },
 		{ key: 'month', label: 'Month' },
+		{ key: 'range', label: 'Range' },
 	];
 </script>
 
@@ -144,6 +156,12 @@
 				<option value={i}>{name}</option>
 			{/each}
 		</select>
+	{/if}
+
+	{#if scale === 'range'}
+		<!-- Same calendar language as the Recorder's date picker, but selection is
+		     a span: both ends light up, the days between carry a lighter tint. -->
+		<DateRangePicker bind:from={rangeFrom} bind:to={rangeTo} onChange={emitFilters} />
 	{/if}
 
 </div>

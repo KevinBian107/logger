@@ -38,6 +38,14 @@ export function lateNightDateOptions(now: Date = new Date(), tz?: string): { tod
 	return { today, yesterday };
 }
 
+/** Shift a YYYY-MM-DD by n days (local calendar math, DST-safe). */
+export function addDaysYMD(ymd: string, n: number): string {
+	const [y, m, d] = ymd.split('-').map(Number);
+	const dt = new Date(y, m - 1, d + n);
+	const pad = (x: number) => String(x).padStart(2, '0');
+	return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
 /** Long label for a YYYY-MM-DD, e.g. "Monday, May 25". Parsed as local date. */
 export function longDateLabel(ymd: string): string {
 	const [y, m, d] = ymd.split('-').map(Number);

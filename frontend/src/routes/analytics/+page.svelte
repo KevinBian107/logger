@@ -7,17 +7,17 @@
 		type DailySeriesPoint,
 		type CategoryBreakdownItem,
 		type HeatmapPoint,
-		type SessionComparisonItem,
 		type SessionResponse
 	} from '$lib/api/client';
 	import { sessions, loadSessions } from '$lib/stores/session';
+	import { todayYMDNow } from '$lib/stores/clock';
+	import { addDaysYMD } from '$lib/utils/lateNight';
 	import { formatHoursMinutes } from '$lib/utils/chart';
 	import StatCard from '$lib/components/dashboard/StatCard.svelte';
 	import FilterBar from '$lib/components/analytics/FilterBar.svelte';
 	import DailyAreaChart from '$lib/components/analytics/DailyAreaChart.svelte';
 	import CategoryBars from '$lib/components/analytics/CategoryBars.svelte';
 	import WeeklyHeatmap from '$lib/components/analytics/WeeklyHeatmap.svelte';
-	import SessionBars from '$lib/components/analytics/SessionBars.svelte';
 
 	let overview = $state<AnalyticsOverviewResponse | null>(null);
 	let dailyData = $state<DailySeriesPoint[]>([]);
@@ -65,17 +65,20 @@
 	}
 	let categoryData = $state<CategoryBreakdownItem[]>([]);
 	let heatmapData = $state<HeatmapPoint[]>([]);
-	let sessionData = $state<SessionComparisonItem[]>([]);
 	let allSessions = $state<SessionResponse[]>([]);
 
 	let loadingMain = $state(true);
-	let loadingSessions = $state(true);
 	let error = $state<string | null>(null);
 	let currentFilters = $state<AnalyticsFilters>({});
 	// FilterBar internals are bound from here so the snapshot can preserve them.
-	let scale = $state<'overall' | 'year' | 'month'>('overall');
+	let scale = $state<'overall' | 'year' | 'month' | 'range'>('overall');
 	let filterYear = $state<number | null>(null);
 	let filterMonth = $state<number | null>(null);
+	let filterFrom = $state<string>(addDaysYMD(todayYMDNow(), -29));
+	let filterTo = $state<string>(todayYMDNow());
+	// A one-day range has nothing to trend and one heatmap cell, so those two
+	// range views sit it out and the breakdown carries the day.
+	const singleDay = $derived(scale === 'range' && filterFrom === filterTo);
 
 	// For overall view, bucket the daily series into ISO weeks. Year and Month
 	// stay day-resolution since they have ≤366 / 31 points respectively.
@@ -103,7 +106,6 @@
 
 	async function loadAll() {
 		loadingMain = true;
-		loadingSessions = true;
 
 		try {
 			await loadSessions();
@@ -112,13 +114,9 @@
 		const unsub = sessions.subscribe(s => { allSessions = s; });
 		unsub();
 
-		await Promise.all([
-			fetchFilteredData(currentFilters),
-			api.getAnalyticsSessions().then(d => { sessionData = d; }).catch(() => {}),
-		]);
+		await fetchFilteredData(currentFilters);
 
 		loadingMain = false;
-		loadingSessions = false;
 	}
 
 	function handleFilterChange(filters: AnalyticsFilters, _scale: string) {
@@ -144,17 +142,23 @@
 			scale,
 			filterYear,
 			filterMonth,
+			filterFrom,
+			filterTo,
 		}),
 		restore: (s: {
 			filters: AnalyticsFilters;
-			scale: 'overall' | 'year' | 'month';
+			scale: 'overall' | 'year' | 'month' | 'range';
 			filterYear: number | null;
 			filterMonth: number | null;
+			filterFrom: string;
+			filterTo: string;
 		}) => {
 			currentFilters = s.filters;
 			scale = s.scale;
 			filterYear = s.filterYear;
 			filterMonth = s.filterMonth;
+			filterFrom = s.filterFrom ?? addDaysYMD(todayYMDNow(), -29);
+			filterTo = s.filterTo ?? todayYMDNow();
 			// SvelteKit calls restore() AFTER onMount, so loadAll() has already
 			// fetched with the default empty filters. Re-issue with the restored
 			// filters so the charts match what the snapshot remembered.
@@ -176,6 +180,8 @@
 			bind:scale
 			bind:selectedYear={filterYear}
 			bind:selectedMonth={filterMonth}
+			bind:rangeFrom={filterFrom}
+			bind:rangeTo={filterTo}
 		/>
 	</div>
 
@@ -213,16 +219,18 @@
 		{/if}
 
 		<!-- Trend chart — daily for Year/Month, weekly buckets for Overall.
-		     The bucketing happens client-side in `chartData`. -->
-		<DailyAreaChart data={chartData} timeScale={scale} />
+		     The bucketing happens client-side in `chartData`. Range mode stays at
+		     day resolution; a one-day range hides the trend and the heatmap. -->
+		{#if !singleDay}
+			<DailyAreaChart data={chartData} timeScale={scale} />
+		{/if}
 
-		<!-- Two-column: Category bars + Heatmap -->
-		<div class="grid gap-4 lg:grid-cols-2">
-			<CategoryBars data={categoryData} />
+		<!-- Full-width, stacked: the breakdown scrolls inside its own box so a
+		     long category list doesn't push the heatmap off the page. -->
+		<CategoryBars data={categoryData} />
+
+		{#if !singleDay}
 			<WeeklyHeatmap data={heatmapData} />
-		</div>
-
-		<!-- Session comparison -->
-		<SessionBars data={sessionData} />
+		{/if}
 	{/if}
 </div>
