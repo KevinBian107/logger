@@ -37,13 +37,15 @@
 		return m;
 	});
 
-	function groupBadgeClass(slug: string | null | undefined): string {
+	// Group badge = neutral pill + colored dot. Tinted text (text-blue-700 …)
+	// was unreadable on the dark theme; a dot reads the same in both.
+	function groupDotClass(slug: string | null | undefined): string {
 		switch (slug) {
-			case 'research': return 'bg-blue-500/10 text-blue-700';
-			case 'courses': return 'bg-purple-500/10 text-purple-700';
-			case 'personal': return 'bg-amber-500/10 text-amber-700';
-			case 'training': return 'bg-red-500/10 text-red-700';
-			default: return 'bg-gray-500/10 text-gray-600';
+			case 'research': return 'bg-blue-500';
+			case 'courses': return 'bg-purple-500';
+			case 'personal': return 'bg-amber-500';
+			case 'training': return 'bg-red-500';
+			default: return 'bg-gray-400';
 		}
 	}
 
@@ -173,47 +175,67 @@
 		return (minutes / 60).toFixed(1);
 	}
 
+	function formatDate(ymd: string): string {
+		const [y, m, d] = ymd.split('-').map(Number);
+		return new Date(y, m - 1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+	}
+
+	function familyColor(familyId: number | null): string | null {
+		if (!familyId) return null;
+		return families.find((f) => f.id === familyId)?.color ?? null;
+	}
+
+	// Share-of-session bars in the Hours column.
+	const maxCatMinutes = $derived(Math.max(1, ...session.categories.map((c) => c.total_minutes)));
+	const dailyAverage = $derived(session.days_logged ? Math.round(session.total_minutes / session.days_logged) : 0);
+
 	onMount(loadFamiliesAndGroups);
 </script>
 
 <div class="space-y-6">
 	<!-- Session info card -->
-	<div class="rounded-lg border border-border bg-card p-5">
-		<div class="flex items-start justify-between">
+	<div class="rounded-xl border border-border bg-card">
+		<div class="flex items-start justify-between gap-4 px-5 pt-5">
 			<div>
-				<h2 class="text-xl font-semibold">{session.label}</h2>
+				<div class="flex items-center gap-2.5">
+					<h2 class="text-xl font-semibold">{session.label}</h2>
+					{#if session.is_active}
+						<span class="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-400">
+							<span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
+							Active
+						</span>
+					{:else}
+						<span class="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+							Archived
+						</span>
+					{/if}
+				</div>
 				<p class="mt-1 text-sm text-muted-foreground">
 					{#if session.start_date && session.end_date}
-						{session.start_date} to {session.end_date}
+						{formatDate(session.start_date)} – {formatDate(session.end_date)}
 					{:else}
 						No date range
 					{/if}
 				</p>
 			</div>
-			{#if session.is_active}
-				<span class="inline-flex items-center gap-1.5 rounded-full bg-green-500/10 px-2.5 py-1 text-xs font-medium text-green-700">
-					<span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>
-					Active
-				</span>
-			{:else}
-				<span class="inline-flex items-center rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-					Archived
-				</span>
-			{/if}
 		</div>
 
-		<div class="mt-4 grid grid-cols-3 gap-4">
-			<div class="rounded-lg bg-muted p-3">
-				<div class="text-2xl font-bold">{formatDecimalHours(session.total_minutes)}</div>
+		<div class="mt-4 grid grid-cols-2 divide-border border-t border-border sm:grid-cols-4 sm:divide-x">
+			<div class="px-5 py-3.5">
 				<div class="text-xs text-muted-foreground">Total hours</div>
+				<div class="mt-0.5 text-xl font-semibold tabular-nums">{formatDecimalHours(session.total_minutes)}</div>
 			</div>
-			<div class="rounded-lg bg-muted p-3">
-				<div class="text-2xl font-bold">{session.days_logged}</div>
+			<div class="px-5 py-3.5">
 				<div class="text-xs text-muted-foreground">Days logged</div>
+				<div class="mt-0.5 text-xl font-semibold tabular-nums">{session.days_logged}</div>
 			</div>
-			<div class="rounded-lg bg-muted p-3">
-				<div class="text-2xl font-bold">{session.categories.length}</div>
+			<div class="px-5 py-3.5">
+				<div class="text-xs text-muted-foreground">Daily average</div>
+				<div class="mt-0.5 text-xl font-semibold tabular-nums">{formatHours(dailyAverage)}</div>
+			</div>
+			<div class="px-5 py-3.5">
 				<div class="text-xs text-muted-foreground">Categories</div>
+				<div class="mt-0.5 text-xl font-semibold tabular-nums">{session.categories.length}</div>
 			</div>
 		</div>
 	</div>
@@ -221,7 +243,10 @@
 	<!-- Categories table -->
 	<div>
 		<div class="mb-3 flex items-center justify-between">
-			<h3 class="text-lg font-semibold">Categories</h3>
+			<div>
+				<h3 class="text-base font-semibold">Categories</h3>
+				<p class="text-xs text-muted-foreground">Link each category to a family so it groups across sessions.</p>
+			</div>
 			{#if !addingCategory}
 				<button
 					onclick={() => { addingCategory = true; newCatName = ''; addCatError = ''; }}
@@ -265,7 +290,7 @@
 			</div>
 		{/if}
 
-		<div class="rounded-lg border border-border">
+		<div class="overflow-hidden rounded-xl border border-border bg-card">
 			<table class="w-full text-sm">
 				<thead>
 					<tr class="border-b border-border bg-muted/50">
@@ -335,12 +360,14 @@
 								<td class="px-4 py-2.5">
 									{#if groupForCategory(cat.family_id)}
 										{@const g = groupForCategory(cat.family_id)!}
-										<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {groupBadgeClass(g.name)}">
+										<span class="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs font-medium text-foreground">
+											<span class="h-1.5 w-1.5 rounded-full {groupDotClass(g.name)}"></span>
 											{g.display_name || g.name}
 										</span>
 									{:else if cat.family_type}
 										<!-- Fall back to legacy column for families that haven't been migrated -->
-										<span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {groupBadgeClass(cat.family_type === 'course' ? 'courses' : cat.family_type)}">
+										<span class="inline-flex items-center gap-1.5 rounded-full border border-border px-2 py-0.5 text-xs font-medium text-foreground">
+											<span class="h-1.5 w-1.5 rounded-full {groupDotClass(cat.family_type === 'course' ? 'courses' : cat.family_type)}"></span>
 											{cat.family_type.charAt(0).toUpperCase() + cat.family_type.slice(1)}
 										</span>
 									{:else}
@@ -349,17 +376,29 @@
 								</td>
 								<td class="px-4 py-2.5">
 									{#if cat.family_display_name}
-										<span class="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+										<span class="inline-flex items-center gap-1.5 text-sm">
+											<span
+												class="h-2.5 w-2.5 shrink-0 rounded-full"
+												style="background-color: {familyColor(cat.family_id) || 'var(--color-primary)'}"
+											></span>
 											{cat.family_display_name}
 										</span>
 									{:else}
-										<span class="text-muted-foreground">—</span>
+										<span class="text-xs italic text-muted-foreground">unlinked</span>
 									{/if}
 								</td>
 							{/if}
 
-							<td class="px-4 py-2.5 text-right tabular-nums">
-								{formatHours(cat.total_minutes)}
+							<td class="px-4 py-2.5 text-right">
+								<div class="flex items-center justify-end gap-3">
+									<div class="hidden h-1.5 w-20 overflow-hidden rounded-full bg-muted md:block" aria-hidden="true">
+										<div
+											class="h-full rounded-full"
+											style="width: {(cat.total_minutes / maxCatMinutes) * 100}%; background-color: {familyColor(cat.family_id) || 'var(--color-primary)'}; opacity: 0.75"
+										></div>
+									</div>
+									<span class="w-20 whitespace-nowrap tabular-nums">{formatHours(cat.total_minutes)}</span>
+								</div>
 							</td>
 							<td class="px-4 py-2.5 text-right">
 								{#if editingCatId === cat.id}

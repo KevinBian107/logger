@@ -329,11 +329,14 @@
 </script>
 
 <div class="flex h-full flex-col">
-	<div class="mb-3 flex items-center justify-between">
-		<h3 class="text-lg font-semibold">Category Groups</h3>
+	<div class="mb-3 flex items-start justify-between gap-4">
+		<div>
+			<h3 class="text-base font-semibold">Groups, families &amp; categories</h3>
+			<p class="text-xs text-muted-foreground">All-time view. Bubble size is total time logged; hover for details.</p>
+		</div>
 		<button
 			onclick={loadData}
-			class="text-sm text-muted-foreground hover:text-foreground"
+			class="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
 		>
 			Refresh
 		</button>
@@ -352,7 +355,8 @@
 			<p>No data yet — import a session to populate Groups, Families, and Categories.</p>
 		</div>
 	{:else}
-		<div class="relative" style="height: calc(100vh - 10rem);" bind:this={container}>
+		<!-- Fills whatever height the Data page leaves below its header + tabs. -->
+		<div class="relative min-h-[420px] flex-1 overflow-hidden rounded-xl border border-border bg-card" bind:this={container}>
 			<svg bind:this={svgEl} class="absolute inset-0"></svg>
 		</div>
 	{/if}

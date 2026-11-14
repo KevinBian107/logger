@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { api, type ImportPreviewResponse } from '$lib/api/client';
 
-	let { onComplete }: { onComplete: () => void } = $props();
+	// onCancel is set when shown in a modal; it adds a close button to the header.
+	let { onComplete, onCancel }: { onComplete: () => void; onCancel?: () => void } = $props();
 
 	let studyFile = $state<File | null>(null);
 	let textFile = $state<File | null>(null);
@@ -72,16 +73,35 @@
 </script>
 
 <div class="space-y-6">
-	<div class="flex items-center justify-between">
-		<h2 class="text-xl font-semibold">Import CSV Data</h2>
-		{#if preview || studyFile}
-			<button
-				onclick={reset}
-				class="text-sm text-muted-foreground hover:text-foreground"
-			>
-				Reset
-			</button>
-		{/if}
+	<div class="flex items-start justify-between gap-4">
+		<div>
+			<h2 class="text-lg font-semibold">Import CSV Data</h2>
+			<p class="mt-0.5 text-sm text-muted-foreground">
+				A timesheet CSV (<code class="text-xs">{'{year}_{season}_study.csv'}</code>), plus an optional notes CSV.
+			</p>
+		</div>
+		<div class="flex shrink-0 items-center gap-3">
+			{#if preview || studyFile}
+				<button
+					onclick={reset}
+					class="text-sm text-muted-foreground hover:text-foreground"
+				>
+					Reset
+				</button>
+			{/if}
+			{#if onCancel}
+				<button
+					onclick={onCancel}
+					class="rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+					title="Close"
+					aria-label="Close"
+				>
+					<svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+					</svg>
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	{#if !preview}
