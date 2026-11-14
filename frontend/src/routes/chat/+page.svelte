@@ -36,10 +36,10 @@
 	});
 
 	const suggestedQueries = [
-		'Summarize my 2024 productivity',
-		'How much time did I spend on training?',
-		'Compare Fall 2024 and Winter 2025',
-		'What are my top categories?'
+		'What did I work on last week?',
+		'How has my research time changed this year?',
+		'Summarize this quarter so far',
+		'Which courses took the most time overall?'
 	];
 
 	function handleSend(message: string) {

@@ -15,7 +15,9 @@
 	<div class="flex justify-center py-1">
 		<span class="text-xs text-muted-foreground italic">{message.content}</span>
 	</div>
-{:else}
+{:else if isUser || message.content}
+	<!-- An assistant message with no text yet is the streaming placeholder
+	     (Claude is still calling tools); the page's "thinking" indicator covers it. -->
 	<div class="flex {isUser ? 'justify-end' : 'justify-start'} mb-3">
 		<div
 			class="max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed

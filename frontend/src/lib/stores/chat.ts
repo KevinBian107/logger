@@ -132,6 +132,17 @@ export async function approveQuery(approvalId: string) {
 							}
 							return updated;
 						});
+					} else if (event.type === 'reset') {
+						// Text streamed before a tool call was a preamble, not the
+						// answer — clear the draft; the real answer streams next.
+						messages.update((msgs) => {
+							const updated = [...msgs];
+							const last = updated[updated.length - 1];
+							if (last && last.role === 'assistant') {
+								updated[updated.length - 1] = { ...last, content: '' };
+							}
+							return updated;
+						});
 					} else if (event.type === 'tool_call') {
 						currentToolActivity.update((arr) => [
 							...arr,
