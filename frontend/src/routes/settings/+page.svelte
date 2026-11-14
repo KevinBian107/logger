@@ -273,6 +273,17 @@
 			// ignore
 		}
 	}
+
+	async function handleWebSearchChange(enabled: boolean) {
+		if (!chatStatusData) return;
+		const prev = chatStatusData;
+		chatStatusData = { ...chatStatusData, web_search_enabled: enabled };
+		try {
+			await api.setChatWebSearch(enabled);
+		} catch {
+			chatStatusData = prev;
+		}
+	}
 </script>
 
 <div class="mx-auto max-w-2xl space-y-8">
@@ -421,6 +432,31 @@
 							</option>
 						{/each}
 					</select>
+				</div>
+
+				<!-- Web search (opt-in) -->
+				<div class="flex items-start justify-between gap-4 border-t border-border pt-4">
+					<div>
+						<span id="web-search-label" class="text-sm font-medium">Allow web search in chat</span>
+						<p class="mt-0.5 text-xs text-muted-foreground">
+							Lets Claude look up outside context, like what a paper, lab or course is.
+							Search queries leave your machine, so Claude is told to use public terms only.
+							Your activity data always comes from the local database.
+						</p>
+					</div>
+					<button
+						role="switch"
+						aria-checked={chatStatusData.web_search_enabled}
+						aria-labelledby="web-search-label"
+						onclick={() => chatStatusData && handleWebSearchChange(!chatStatusData.web_search_enabled)}
+						class="relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors
+							{chatStatusData.web_search_enabled ? 'bg-primary' : 'bg-muted-foreground/30'}"
+					>
+						<span
+							class="inline-block h-5 w-5 rounded-full bg-white shadow transition-transform
+								{chatStatusData.web_search_enabled ? 'translate-x-5' : 'translate-x-0.5'}"
+						></span>
+					</button>
 				</div>
 			{/if}
 		</div>

@@ -24,6 +24,13 @@ export function renderMarkdown(md: string): string {
 	// Inline code
 	html = html.replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>');
 
+	// Links [text](https://…) — http(s) only. The text is already HTML-escaped,
+	// so quotes can't break out of the href attribute. Used for web sources.
+	html = html.replace(
+		/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g,
+		'<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>'
+	);
+
 	// Headers (### before ## before #)
 	html = html.replace(/^#### (.+)$/gm, '<h4 class="md-h4">$1</h4>');
 	html = html.replace(/^### (.+)$/gm, '<h3 class="md-h3">$1</h3>');

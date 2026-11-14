@@ -42,6 +42,18 @@ export async function loadChatStatus() {
 	}
 }
 
+// Opt-in web access for chat (persisted server-side as a setting).
+export async function setWebSearch(enabled: boolean) {
+	const prev = get(chatStatus);
+	if (prev) chatStatus.set({ ...prev, web_search_enabled: enabled }); // optimistic
+	try {
+		await api.setChatWebSearch(enabled);
+	} catch (e) {
+		if (prev) chatStatus.set(prev);
+		chatError.set(e instanceof Error ? e.message : 'Failed to update web search setting');
+	}
+}
+
 export async function loadChatHistory() {
 	if (!browser) return;
 	try {
@@ -180,6 +192,9 @@ export async function approveQuery(approvalId: string) {
 		chatError.set(e instanceof Error ? e.message : 'Streaming failed');
 	} finally {
 		isStreaming.set(false);
+		// A web search interrupted by pause_turn never gets its own result row;
+		// don't leave it pulsing "running…" once the turn is over.
+		currentToolActivity.update((arr) => arr.map((t) => (t.pending ? { ...t, pending: false } : t)));
 		// Clear after a short delay so the user sees the final tool list before it vanishes
 		setTimeout(() => currentToolActivity.set([]), 4000);
 	}

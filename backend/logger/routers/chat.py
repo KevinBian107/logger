@@ -66,6 +66,104 @@ MAX_TOOL_ITERATIONS = 12
 HISTORY_TURNS = 8
 HISTORY_CHAR_CAP = 6000
 
+# ── Web access (opt-in) ──
+# Off by default: with it on, Claude may send search queries to the web, so
+# the user decides. Setting value is "true"/"false".
+WEB_SEARCH_SETTING = "chat_web_search"
+# Server-side tools (run on Anthropic's infrastructure; no local executor).
+# The 2026-02-09 versions (dynamic filtering) need a recent model; others get
+# the basic versions.
+_DYNAMIC_WEB_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5", "claude-sonnet-5", "claude-opus-4-8"}
+WEB_SEARCH_MAX_USES = 5
+WEB_FETCH_MAX_USES = 3
+_SERVER_RESULT_TYPES = {"web_search_tool_result", "web_fetch_tool_result"}
+_SERVER_RESULT_TOOL = {"web_search_tool_result": "web_search", "web_fetch_tool_result": "web_fetch"}
+
+
+def _web_tools(model: str) -> list[dict]:
+    if model in _DYNAMIC_WEB_MODELS:
+        search, fetch = "web_search_20260209", "web_fetch_20260209"
+    else:
+        search, fetch = "web_search_20250305", "web_fetch_20250910"
+    return [
+        {"type": search, "name": "web_search", "max_uses": WEB_SEARCH_MAX_USES},
+        {"type": fetch, "name": "web_fetch", "max_uses": WEB_FETCH_MAX_USES},
+    ]
+
+
+WEB_ON_NOTE = """\
+## Web access (turned on by the user)
+You can use web_search and web_fetch. Use them only when a question needs outside \
+information: what a paper, lab, course, tool, company or event is, or how the user's work \
+relates to something public. The user's own activity always comes from the database tools, \
+never from the web. Keep search queries minimal and public: search for names and terms, and \
+don't put private details from the logs (other people's names, personal notes) into a query \
+unless the user explicitly asked about them. Cite web facts inline; a source list is \
+appended to your answer automatically, so don't write your own.
+"""
+
+WEB_OFF_NOTE = """\
+## Web access (off)
+You have no internet access. If a question needs outside information, answer from the \
+user's data and say that web search can be turned on with the "Web search" toggle in the \
+chat header or in Settings.
+"""
+
+
+async def _get_web_search(db: AsyncSession) -> bool:
+    row = (await db.execute(select(Setting).where(Setting.key == WEB_SEARCH_SETTING))).scalar_one_or_none()
+    return bool(row and row.value == "true")
+
+
+def _final_text(content) -> str:
+    """The answer text of a response.
+
+    Text before the last web result is a preamble ("let me search…"), so only
+    text blocks after it count. Adjacent text blocks are joined directly (web
+    citations split one paragraph into several blocks); text separated by
+    other blocks (thinking, tool calls) gets a paragraph break."""
+    blocks = list(content)
+    last_result = max((i for i, b in enumerate(blocks)
+                       if getattr(b, "type", None) in _SERVER_RESULT_TYPES), default=-1)
+    parts: list[str] = []
+    prev = None
+    for b in blocks[last_result + 1:]:
+        t = getattr(b, "type", None)
+        if t == "text" and b.text:
+            if parts and prev != "text":
+                parts.append("\n\n")
+            parts.append(b.text)
+        prev = t
+    return "".join(parts).strip()
+
+
+def _sources_markdown(content) -> str:
+    """Markdown list of unique web sources cited in the answer's text blocks."""
+    seen: dict[str, str] = {}
+    for b in content:
+        if getattr(b, "type", None) != "text":
+            continue
+        for c in getattr(b, "citations", None) or []:
+            url = getattr(c, "url", None)
+            if url and url.startswith(("http://", "https://")) and url not in seen:
+                title = (getattr(c, "title", None) or url).replace("[", "(").replace("]", ")")
+                seen[url] = title
+    if not seen:
+        return ""
+    lines = [f"- [{title}]({url})" for url, title in list(seen.items())[:8]]
+    return "\n\n**Sources**\n" + "\n".join(lines)
+
+
+def _server_result_summary(block) -> str:
+    content = getattr(block, "content", None)
+    if isinstance(content, list):
+        return f"{len(content)} result{'s' if len(content) != 1 else ''}"
+    code = getattr(content, "error_code", None)
+    if code:
+        return f"error: {code}"
+    url = getattr(content, "url", None)
+    return f"fetched {url}" if url else "done"
+
 SYSTEM_PROMPT = """\
 You are the assistant inside log(ger), the user's personal time-tracking app. You answer \
 questions about how they spent their time — research, courses, training, personal \
@@ -188,7 +286,20 @@ async def chat_status(db: AsyncSession = Depends(get_db)):
         has_api_key=has_key,
         selected_model=model,
         available_models=AVAILABLE_MODELS,
+        web_search_enabled=await _get_web_search(db),
     )
+
+
+@router.put("/web-search")
+async def set_web_search(data: dict, db: AsyncSession = Depends(get_db)):
+    enabled = bool(data.get("enabled"))
+    row = (await db.execute(select(Setting).where(Setting.key == WEB_SEARCH_SETTING))).scalar_one_or_none()
+    if row:
+        row.value = "true" if enabled else "false"
+    else:
+        db.add(Setting(key=WEB_SEARCH_SETTING, value="true" if enabled else "false"))
+    await db.commit()
+    return {"status": "updated", "enabled": enabled}
 
 
 @router.get("/history", response_model=list[ChatMessageResponse])
@@ -226,18 +337,21 @@ async def chat_query(req: ChatQueryRequest, db: AsyncSession = Depends(get_db)):
     model_name = next((m["name"] for m in AVAILABLE_MODELS if m["id"] == model), model)
     memory = (f" Your last {history_turns} question{'s' if history_turns != 1 else ''} and "
               "answers are included for context." if history_turns else "")
+    web = await _get_web_search(db)
+    web_note = (" Web search is ON: Claude may also search the web for outside context "
+                "(public terms only)." if web else " Web search is off.")
     preview = (
         f"{model_name} will read a summary of your sessions and projects, then query your "
         f"database with read-only tools ({len(TOOLS)} available) and answer from what it "
-        f"finds.{memory} Tool calls happen automatically; you'll see each one as it runs."
+        f"finds.{memory}{web_note} Tool calls happen automatically; you'll see each one as it runs."
     )
-    tool_names = [t["name"] for t in TOOLS]
+    tool_names = [t["name"] for t in TOOLS] + (["web_search", "web_fetch"] if web else [])
 
     return ChatApprovalResponse(
         approval_id=approval_id,
         user_message=req.message,
         context_info=ChatContextInfo(
-            summary=f"Tool-use mode · {len(TOOLS)} read-only tools · {model_name}",
+            summary=f"Tool-use mode · {len(TOOLS)} read-only tools{' + web' if web else ''} · {model_name}",
             sessions_included=[],
             categories_included=tool_names,
             date_range=[None, None],
@@ -296,12 +410,6 @@ def _summarize_tool_result(name: str, result: dict) -> str:
     return "ok"
 
 
-def _text_of(content) -> str:
-    """Join a response's text blocks (thinking/tool blocks are skipped)."""
-    parts = [b.text for b in content if getattr(b, "type", None) == "text" and b.text]
-    return "\n\n".join(p.strip() for p in parts if p.strip())
-
-
 @router.post("/approve")
 async def chat_approve(req: ChatApproveRequest):
     """Run the multi-turn tool-use loop and stream events back over SSE.
@@ -337,11 +445,14 @@ async def chat_approve(req: ChatApproveRequest):
                 client = anthropic.AsyncAnthropic(api_key=api_key)
 
                 catalog = await build_data_catalog(db)
+                web = await _get_web_search(db)
+                tools = TOOLS + (_web_tools(model) if web else [])
                 # Tools render before system, so the cache breakpoint on the
                 # catalog covers tools + instructions + catalog. The catalog is
                 # fixed for this turn, so every loop iteration reads the cache.
                 system = [
                     {"type": "text", "text": SYSTEM_PROMPT},
+                    {"type": "text", "text": WEB_ON_NOTE if web else WEB_OFF_NOTE},
                     {"type": "text", "text": catalog, "cache_control": {"type": "ephemeral"}},
                 ]
                 messages: list[dict] = await _history_messages(db, user_msg_id)
@@ -349,6 +460,7 @@ async def chat_approve(req: ChatApproveRequest):
                 options = _request_options(model)
 
                 final_text = ""
+                sources = ""
                 iterations = 0
                 truncated = False
                 while True:
@@ -361,27 +473,52 @@ async def chat_approve(req: ChatApproveRequest):
                     iterations += 1
 
                     streamed_text = False
+                    prev_type = None
                     async with client.messages.stream(
                         model=model,
                         max_tokens=MAX_TOKENS,
                         system=system,
-                        tools=TOOLS,
+                        tools=tools,
                         messages=messages,
                         **options,
                     ) as stream:
                         async for event in stream:
-                            if event.type == "content_block_start" and \
-                                    getattr(event.content_block, "type", None) == "text" and streamed_text:
-                                yield _sse({"type": "token", "content": "\n\n"})
+                            if event.type == "content_block_start":
+                                btype = getattr(event.content_block, "type", None)
+                                if btype == "server_tool_use" and streamed_text:
+                                    # Text before a web search is a preamble (see _final_text).
+                                    yield _sse({"type": "reset"})
+                                    streamed_text = False
+                                elif btype == "text" and streamed_text and prev_type != "text":
+                                    yield _sse({"type": "token", "content": "\n\n"})
+                                prev_type = btype
                             elif event.type == "text" and event.text:
                                 streamed_text = True
                                 yield _sse({"type": "token", "content": event.text})
+                            elif event.type == "content_block_stop":
+                                b = event.content_block
+                                btype = getattr(b, "type", None)
+                                if btype == "server_tool_use":
+                                    yield _sse({"type": "tool_call", "name": b.name,
+                                                "input": b.input if isinstance(b.input, dict) else {}})
+                                elif btype in _SERVER_RESULT_TYPES:
+                                    yield _sse({"type": "tool_result",
+                                                "name": _SERVER_RESULT_TOOL[btype],
+                                                "summary": _server_result_summary(b)})
                         resp = await stream.get_final_message()
 
                     if resp.stop_reason == "refusal":
                         yield _sse({"type": "error",
                                     "content": "Claude declined to answer this request. Try rephrasing it."})
                         return
+
+                    if resp.stop_reason == "pause_turn":
+                        # The server-side web loop hit its step limit. Send the
+                        # turn back unchanged (no extra user message) to resume.
+                        if streamed_text:
+                            yield _sse({"type": "reset"})
+                        messages.append({"role": "assistant", "content": resp.content})
+                        continue
 
                     if resp.stop_reason == "tool_use":
                         if streamed_text:
@@ -417,7 +554,8 @@ async def chat_approve(req: ChatApproveRequest):
                         continue
 
                     # end_turn / max_tokens / stop_sequence → this is the answer.
-                    final_text = _text_of(resp.content)
+                    final_text = _final_text(resp.content)
+                    sources = _sources_markdown(resp.content)
                     truncated = resp.stop_reason == "max_tokens"
                     break
 
@@ -428,6 +566,9 @@ async def chat_approve(req: ChatApproveRequest):
                     note = "\n\n*(Answer cut off at the length limit — ask a narrower question for the rest.)*"
                     final_text += note
                     yield _sse({"type": "token", "content": note})
+                if sources:
+                    final_text += sources
+                    yield _sse({"type": "token", "content": sources})
 
                 assistant_msg = ChatMessage(
                     role="assistant",

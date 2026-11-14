@@ -87,4 +87,9 @@
 	.chat-markdown :global(p) {
 		margin: 0.25rem 0;
 	}
+	.chat-markdown :global(.md-link) {
+		color: var(--color-primary);
+		text-decoration: underline;
+		text-underline-offset: 2px;
+	}
 </style>
