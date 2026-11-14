@@ -574,6 +574,7 @@ class ChatStatusResponse(BaseModel):
     has_api_key: bool
     selected_model: str
     available_models: list[dict]
+    web_search_enabled: bool = False
 
 
 class ApiKeySaveRequest(BaseModel):

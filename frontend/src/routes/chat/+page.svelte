@@ -14,7 +14,8 @@
 		loadChatStatus,
 		loadChatHistory,
 		sendQuery,
-		clearHistory
+		clearHistory,
+		setWebSearch
 	} from '$lib/stores/chat';
 
 	let messagesContainer: HTMLDivElement;
@@ -36,10 +37,10 @@
 	});
 
 	const suggestedQueries = [
-		'Summarize my 2024 productivity',
-		'How much time did I spend on training?',
-		'Compare Fall 2024 and Winter 2025',
-		'What are my top categories?'
+		'What did I work on last week?',
+		'How has my research time changed this year?',
+		'Summarize this quarter so far',
+		'Which courses took the most time overall?'
 	];
 
 	function handleSend(message: string) {
@@ -63,14 +64,47 @@
 				</span>
 			{/if}
 		</div>
-		{#if $messages.length > 0}
-			<button
-				onclick={() => clearHistory()}
-				class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
-			>
-				Clear
-			</button>
-		{/if}
+		<div class="flex items-center gap-2">
+			{#if $chatStatus}
+				{@const webOn = $chatStatus.web_search_enabled}
+				<!-- Opt-in internet access. Off: Claude only sees your database. -->
+				<button
+					role="switch"
+					aria-checked={webOn}
+					onclick={() => setWebSearch(!webOn)}
+					disabled={$isLoading || $isStreaming}
+					title={webOn
+						? 'Claude may search the web for outside context (public terms only). Click to turn off.'
+						: 'Claude only uses your local data. Click to allow web search.'}
+					class="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50
+						{webOn
+							? 'border-primary/40 bg-primary/10 text-primary'
+							: 'border-border text-muted-foreground hover:bg-muted'}"
+				>
+					<svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.75">
+						<path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0c2.5-2.5 3.75-5.5 3.75-9S14.5 5.5 12 3m0 18c-2.5-2.5-3.75-5.5-3.75-9S9.5 5.5 12 3M3.5 9h17M3.5 15h17" />
+					</svg>
+					Web search
+					<span
+						class="relative inline-flex h-3.5 w-6 shrink-0 items-center rounded-full transition-colors
+							{webOn ? 'bg-primary' : 'bg-muted-foreground/30'}"
+					>
+						<span
+							class="inline-block h-2.5 w-2.5 rounded-full bg-white shadow transition-transform
+								{webOn ? 'translate-x-3' : 'translate-x-0.5'}"
+						></span>
+					</span>
+				</button>
+			{/if}
+			{#if $messages.length > 0}
+				<button
+					onclick={() => clearHistory()}
+					class="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+				>
+					Clear
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	<!-- API key warning -->

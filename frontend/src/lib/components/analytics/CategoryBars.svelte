@@ -46,28 +46,28 @@
 			const color = d.color || PALETTE[i % PALETTE.length];
 			const barW = x(d.total_minutes);
 
-			// Label (category name + session)
-			const labelText = g.append('text')
+			// Rows are already merged across sessions by the API (same name =
+			// same category, whatever the year/quarter), so the label is just
+			// the name; the session span lives in the hover tooltip.
+			const name = d.display_name || d.name;
+			const tooltip =
+				`${name} · ${formatHoursMinutes(d.total_minutes)}` +
+				(d.session_count > 1 ? ` · across ${d.session_count} sessions` : '');
+			const row = g.append('g');
+			row.append('title').text(tooltip);
+
+			row.append('text')
 				.attr('x', -8)
 				.attr('y', y + BAR_HEIGHT / 2)
 				.attr('text-anchor', 'end')
 				.attr('dominant-baseline', 'central')
-				.style('font-size', '11px')
-				.style('font-family', 'system-ui, sans-serif');
-
-			labelText.append('tspan')
 				.attr('fill', theme.fg)
-				.text((d.display_name || d.name).slice(0, 18));
-
-			if (d.session_label) {
-				labelText.append('tspan')
-					.attr('fill', theme.muted)
-					.style('font-size', '9px')
-					.text(` ${d.session_label}`);
-			}
+				.style('font-size', '11px')
+				.style('font-family', 'system-ui, sans-serif')
+				.text(name.length > 26 ? `${name.slice(0, 25)}…` : name);
 
 			// Bar
-			g.append('rect')
+			row.append('rect')
 				.attr('x', 0)
 				.attr('y', y)
 				.attr('width', barW)
@@ -77,7 +77,7 @@
 				.attr('fill-opacity', 0.7);
 
 			// Value
-			g.append('text')
+			row.append('text')
 				.attr('x', barW + 6)
 				.attr('y', y + BAR_HEIGHT / 2)
 				.attr('dominant-baseline', 'central')

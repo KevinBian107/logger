@@ -42,11 +42,15 @@ async def get_overview(db: AsyncSession, filters: dict) -> dict:
     days_tracked = int(row.days_tracked)
     daily_average = total_minutes // days_tracked if days_tracked > 0 else 0
 
-    # Active categories count
+    # Active categories count — same-named categories from different sessions
+    # count once, matching the merged Category Breakdown (category_merge_key).
     cat_stmt = (
-        select(func.count(func.distinct(Observation.category_id)))
+        select(func.count(func.distinct(
+            func.lower(func.trim(func.coalesce(Category.display_name, Category.name)))
+        )))
         .select_from(Observation)
         .join(DailyRecord, Observation.daily_record_id == DailyRecord.id)
+        .join(Category, Observation.category_id == Category.id)
     )
     cat_stmt = _apply_filters(cat_stmt, filters)
     cat_result = await db.execute(cat_stmt)
@@ -129,49 +133,79 @@ async def get_daily_series(db: AsyncSession, filters: dict) -> list[dict]:
     ]
 
 
+def category_merge_key(display_name: str | None, name: str | None) -> str:
+    """Key that identifies "the same category" across sessions.
+
+    Each session owns its own Category rows (Salk in Winter 2024 and Salk in
+    Fall 2025 are different ids), but for analytics they are one activity.
+    Matching on the case/whitespace-insensitive display name merges them
+    regardless of when they were logged. Must stay identical to the SQL
+    lower(trim(coalesce(display_name, name))) in get_overview's category count.
+    """
+    return (display_name or name or "").strip().lower()
+
+
 async def get_category_breakdown(db: AsyncSession, filters: dict) -> list[dict]:
-    """Category breakdown: total minutes per category per session."""
+    """Category breakdown: total minutes per category, merged across sessions.
+
+    Categories with the same display name are combined into one row no matter
+    which session (year/quarter) they belong to. The family/color shown for a
+    merged row comes from whichever underlying category contributed the most
+    minutes, so a rare mismatch in family linkage can't flip the color.
+    """
     stmt = (
         select(
+            Category.id.label("category_id"),
             Category.name,
             Category.display_name,
             CategoryFamily.name.label("family_name"),
             CategoryFamily.color.label("color"),
+            DailyRecord.session_id,
             func.sum(Observation.minutes).label("total_minutes"),
-            func.count(func.distinct(DailyRecord.session_id)).label("session_count"),
-            Session.label.label("session_label"),
-            Session.year.label("session_year"),
-            Session.season.label("session_season"),
         )
         .select_from(Observation)
         .join(DailyRecord, Observation.daily_record_id == DailyRecord.id)
         .join(Category, Observation.category_id == Category.id)
-        .join(Session, DailyRecord.session_id == Session.id)
         .outerjoin(CategoryFamily, Category.family_id == CategoryFamily.id)
     )
     stmt = _apply_filters(stmt, filters)
-    stmt = stmt.group_by(
-        Category.name, Category.display_name,
-        CategoryFamily.name, CategoryFamily.color,
-        Session.id,
-    )
-    stmt = stmt.order_by(func.sum(Observation.minutes).desc())
+    stmt = stmt.group_by(Category.id, DailyRecord.session_id)
 
     result = await db.execute(stmt)
     rows = result.all()
 
-    return [
-        {
-            "name": row.name,
-            "display_name": row.display_name,
-            "family_name": row.family_name,
-            "color": row.color,
-            "total_minutes": int(row.total_minutes),
-            "session_count": int(row.session_count),
-            "session_label": row.session_label or f"{row.session_season} {row.session_year}",
-        }
-        for row in rows
-    ]
+    merged: dict[str, dict] = {}
+    for row in rows:
+        minutes = int(row.total_minutes or 0)
+        key = category_merge_key(row.display_name, row.name)
+        item = merged.get(key)
+        if item is None:
+            item = merged[key] = {
+                "total_minutes": 0,
+                "sessions": set(),
+                "_contrib": defaultdict(int),  # category_id -> minutes
+                "_rows": {},                   # category_id -> row
+            }
+        item["total_minutes"] += minutes
+        item["sessions"].add(row.session_id)
+        item["_contrib"][row.category_id] += minutes
+        item["_rows"][row.category_id] = row
+
+    out = []
+    for item in merged.values():
+        lead_id = max(item["_contrib"], key=item["_contrib"].get)
+        lead = item["_rows"][lead_id]
+        out.append({
+            "name": lead.name,
+            "display_name": lead.display_name,
+            "family_name": lead.family_name,
+            "color": lead.color,
+            "total_minutes": item["total_minutes"],
+            "session_count": len(item["sessions"]),
+            "session_label": None,
+        })
+    out.sort(key=lambda d: d["total_minutes"], reverse=True)
+    return out
 
 
 async def get_heatmap(db: AsyncSession, filters: dict) -> list[dict]:

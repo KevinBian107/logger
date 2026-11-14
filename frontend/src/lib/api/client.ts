@@ -327,6 +327,7 @@ export interface ChatStatusResponse {
 	has_api_key: boolean;
 	selected_model: string;
 	available_models: { id: string; name: string }[];
+	web_search_enabled: boolean;
 }
 
 // ── Projects Types ───────────────────────────────────────
@@ -742,6 +743,11 @@ export const api = {
 		request<Record<string, unknown>>('/chat/model', {
 			method: 'PUT',
 			body: JSON.stringify({ model_id: modelId })
+		}),
+	setChatWebSearch: (enabled: boolean) =>
+		request<{ status: string; enabled: boolean }>('/chat/web-search', {
+			method: 'PUT',
+			body: JSON.stringify({ enabled })
 		}),
 
 	// Projects (legacy)
